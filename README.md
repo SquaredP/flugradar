@@ -42,6 +42,7 @@ Die Seite fragt diese freien Dienste der Reihe nach und nimmt den ersten, der an
 3. [airplanes.live](https://airplanes.live) – nur nicht-kommerziell, höchstens eine Anfrage pro Sekunde
 4. [OpenSky Network](https://opensky-network.org) – anonym 400 Abfragen pro Tag, daher nur alle 30 Sekunden
 5. adsb.lol weltweiter Datenstand – Notbetrieb, lädt alle 30 Sekunden alle Flugzeuge der Welt (rund 1 MB komprimiert), nur wenn sonst nichts geht
+6. Schnappschuss aus GitHub Actions – **nicht live**, nur Mitteleuropa, siehe „Technische Schulden“
 
 Diese Dienste sind für Abfragen von Servern gebaut. Ob sie Abfragen **direkt aus dem Browser** zulassen (CORS), legen sie selbst fest, und das kann sich ändern; adsb.fi zum Beispiel lässt es nicht zu und fehlt deshalb. Steht oben „Keine Flugdatenquelle erreichbar“, hilft der eigene Vermittler.
 
@@ -54,6 +55,15 @@ Ein kleines Skript bei Cloudflare Workers (kostenloser Tarif, 100.000 Anfragen a
 3. Die Adresse des Workers (z. B. `https://flugradar.DEINNAME.workers.dev`) in [`config.json`](config.json) bei `"proxy"` eintragen und committen.
 
 Die Content-Security-Policy in `index.html` erlaubt Verbindungen zu `*.workers.dev`. Bei einer eigenen Domain diese dort in `connect-src` ergänzen.
+
+## Technische Schulden
+
+**TECH-DEBT-1: Schnappschuss statt Live-Daten (Notlösung).** Wenn kein Flugdatendienst direkt aus dem Browser antwortet (vermutlich CORS), zeigt die Seite zuletzt einen Schnappschuss, den GitHub Actions bei jedem Lauf (alle 30 Minuten, in der Praxis oft später) holt und mit der Seite veröffentlicht.
+
+- Skript: [`tools/snapshot.mjs`](tools/snapshot.mjs), Workflow-Schritt „Schnappschuss Mitteleuropa (Notlösung)“, Anzeige in `index.html` (Suche nach `TECH-DEBT`, Anbieter `snap`).
+- Einschränkungen: nicht live (Positionen sind bis zu eine Stunde alt und werden nur mit Kurs und Geschwindigkeit fortgeschrieben), nur Mitteleuropa (grob 43,5–58° N, 0–23° O), keine Suche nach Flügen außerhalb. Die Seite zeigt deutlich „Nicht live: Stand vor X Min“.
+- Risiken: Die Server von GitHub Actions werden von Diensten eventuell gesperrt (OpenSky nennt das für Hyperscaler). Dann bleibt die Datei leer und die Seite meldet, dass keine Quelle erreichbar ist. Die Daten werden mit der Seite öffentlich ausgeliefert; die Quellen erlauben nur nicht-kommerzielle Nutzung.
+- Abbau: Sobald der eigene Vermittler läuft (oben), den Anbieter `snap` aus `PROV` und `fetchSnap` aus `index.html`, `tools/snapshot.mjs`, den Workflow-Schritt und `data/snapshot.json` entfernen.
 
 ## Einrichtung
 

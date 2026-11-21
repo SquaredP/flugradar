@@ -321,7 +321,7 @@ function compass(b){return['Nord','Nordost','Ost','Südost','Süd','Südwest','W
 function planePos(p,now){
   const age=Math.max(0,now-p.ts),ll=[p.lat,p.lon];
   if(p.trk==null||p.gs==null||p.gs<(p.gnd?3:30))return{ll,age,est:false};
-  const dt=Math.min(age,p.gnd?15:EXTRAP_MAX);
+  const dt=Math.min(age,p.gnd?15:(p.ex||EXTRAP_MAX));
   return{ll:dt>0?project(ll,p.trk,p.gs*KN*dt):ll,age,est:dt>5};
 }
 /* Nächste Annäherung an einen Ort, geradeaus mit Kurs und Geschwindigkeit (ebene Näherung, genau genug bis etwa 100 km) */
@@ -576,7 +576,9 @@ const PROV=[
   {id:'adsblol',name:'adsb.lol',base:()=>'https://api.adsb.lol',v2:true},
   {id:'apl',name:'airplanes.live',base:()=>'https://api.airplanes.live',v2:true},
   {id:'opensky',name:'OpenSky Network',os:true,min:30},
-  {id:'globe',name:'adsb.lol (weltweiter Datenstand)',globe:true,min:30}
+  {id:'globe',name:'adsb.lol (weltweiter Datenstand)',globe:true,min:30},
+  /* TECH-DEBT: Schnappschuss aus GitHub Actions, höchstens halbstündlich neu. Nur Notlösung (siehe README). */
+  {id:'snap',name:'Schnappschuss (nicht live)',snap:true,min:300}
 ];
 const pfail={};   // id -> {at, wait, msg}
 const provOk=p=>(!p.on||p.on())&&!(pfail[p.id]&&Date.now()-pfail[p.id].at<pfail[p.id].wait);
@@ -598,9 +600,24 @@ async function fetchArea(p,ci){
     const j=await getJSON('https://opensky-network.org/api/states/all?extended=1&lamin='+S.toFixed(3)+'&lomin='+W.toFixed(3)+'&lamax='+N.toFixed(3)+'&lomax='+E.toFixed(3));
     return(j.states||[]).map(s=>fromOpenSky(s,now)).filter(Boolean);
   }
+  if(p.snap)return fetchSnap(ci);
   const j=await getJSON('https://globe.adsb.lol/data/aircraft.json',{timeout:30000});
   const[S,W,N,E]=ci.b,out=[];
   for(const a of j.aircraft||[]){if(a.lat<S||a.lat>N||a.lon<W||a.lon>E)continue;const x=fromV2(a,now);if(x)out.push(x);}
+  return out;
+}
+/* TECH-DEBT: Schnappschuss (data/snapshot.json) aus dem Build. Positionen sind bis zu einer Stunde alt und werden mit
+   Kurs und Geschwindigkeit fortgeschrieben (p.ex). Nur als letzter Ausweg, wenn kein Live-Dienst antwortet. */
+const SNAP_MAX=3600;
+async function fetchSnap(ci){
+  const j=await getJSON('data/snapshot.json?'+Math.floor(Date.now()/300000));
+  const age=nowSec()-(j.t||0);
+  if(!j.t||age>SNAP_MAX)throw new Error('Schnappschuss fehlt oder ist zu alt');
+  state.snap={t:j.t,src:j.src,box:j.box};
+  const[S,W,N,E]=ci.b,out=[];
+  const add=x=>{if(x&&x.lat>=S&&x.lat<=N&&x.lon>=W&&x.lon<=E){x.ex=SNAP_MAX+300;out.push(x);}};
+  for(const a of j.ac||[])add(fromV2(a,j.t));
+  for(const s of j.os||[])add(fromOpenSky(s,j.t));
   return out;
 }
 /* Abfrage nach Kennung (hex, callsign, reg), Listen mit Komma */
@@ -679,6 +696,11 @@ function statusLine(shown,hidden){
   if(state.err)return[state.err,true];
   if(!state.prov)return['Lade Flugzeuge …',false];
   const p=PROV.find(x=>x.id===state.prov);
+  if(p.snap&&state.snap){
+    const min=Math.max(0,Math.round((nowSec()-state.snap.t)/60)),b=state.snap.box,c=state.area?state.area.c:null;
+    const out=c&&b&&(c[0]<b[0]||c[0]>b[2]||c[1]<b[1]||c[1]>b[3]);
+    return['Nicht live: Stand vor '+min+' Min · '+shown+(shown===1?' Flugzeug':' Flugzeuge')+(out?' · außerhalb des Schnappschuss-Gebiets (Mitteleuropa)':' · Positionen geschätzt'),true];
+  }
   let t='Live · '+p.name+' · '+hhmmss(state.lastOk)+' · '+shown+(shown===1?' Flugzeug':' Flugzeuge');
   if(hidden)t+=' · '+hidden+' Namen ausgeblendet';
   if(state.area&&state.area.nm>=250)t+=' · nur 460 km Umkreis';
@@ -697,7 +719,7 @@ function passes(p,fav){
   return true;
 }
 function planeIcon(p,pos,sel,fav,emg,label){
-  const cat=p.cat,[shape,size]=shapeOf(p,cat),rot=p.trk!=null?Math.round(p.trk/5)*5:0,old=pos.age>STALE;
+  const cat=p.cat,[shape,size]=shapeOf(p,cat),rot=p.trk!=null?Math.round(p.trk/5)*5:0,old=pos.age>STALE&&!p.ex;
   const txt=label?(fav?'★ ':'')+nameOf(p):'',em=label&&!p.gnd&&p.alt!=null?altShort(p.alt)+vArrow(p.vr):'';
   const key=[cat,shape,size,rot,old,sel,emg,p.gnd,txt,em].join('|');
   return{key,make:()=>{
@@ -715,7 +737,7 @@ function render(){
   for(const p of state.planes.values()){
     const isSel=!!sel&&sel.h===p.h,fav=isFav(p,fi);
     if(!isSel&&(gated||!passes(p,fav)))continue;
-    if(!isSel&&!fav&&now-p.ts>DROP)continue;
+    if(!isSel&&!fav&&now-p.ts>DROP&&!p.ex)continue;
     const pos=planePos(p,now);
     if(!isSel&&!bounds.contains(pos.ll))continue;
     list.push({p,pos,isSel,fav,emg:isEmg(p),pt:map.latLngToContainerPoint(pos.ll)});
@@ -979,7 +1001,7 @@ function renderPlaneStatus(){
   const sm=el('small','num');
   sm.append('Position '+hhmmss(p.ts*1000)+', '+ago(pos.age));
   if(pos.est)sm.append(' · fortgeschrieben');
-  if(pos.age>STALE)sm.appendChild(el('span','late',' · veraltet'));
+  if(pos.age>STALE&&!p.ex)sm.appendChild(el('span','late',' · veraltet'));
   if(state.place){const d=dist(pos.ll,[state.place.lat,state.place.lon]);sm.append(' · '+fmtKm(d)+' von '+state.place.name);}
   box.appendChild(sm);
   const a=$('pAlt');a.replaceChildren();
@@ -1046,7 +1068,7 @@ function renderFavs(){
   }
   const now=nowSec(),ps=[...state.planes.values()];
   state.favs.forEach((f,i)=>{
-    const p=f.k==='cs'?ps.find(x=>x.cs===f.id&&now-x.ts<DROP):ps.find(x=>x.h===f.id&&now-x.ts<DROP);
+    const p=f.k==='cs'?ps.find(x=>x.cs===f.id&&(x.ex||now-x.ts<DROP)):ps.find(x=>x.h===f.id&&(x.ex||now-x.ts<DROP));
     if(p){f.cat=p.cat;if(f.k==='hex'&&p.r)f.n=p.r;}
     const box=el('div','fav'),open=el('button','open');open.type='button';
     const pp=el('p'),rt=f.k==='cs'?routeFresh(f.id):null;
@@ -1107,7 +1129,7 @@ function computePass(){
   const now=nowSec(),pl=[state.place.lat,state.place.lon],elev=state.place.elev||0,icao=state.place.icao||'';
   const near=[],come=[],arr=[],dep=[],want=[];
   for(const p of allPlanes()){
-    if(!state.cats.has(p.cat)||!matches(p,state.query)||now-p.ts>DROP)continue;
+    if(!state.cats.has(p.cat)||!matches(p,state.query)||(now-p.ts>DROP&&!p.ex))continue;
     const pos=planePos(p,now),d=dist(pos.ll,pl);
     if(d>300000)continue;
     if(icao){
@@ -1525,7 +1547,7 @@ function renderAip(){
 /* ---------- Suche ---------- */
 async function findPlane(){
   const raw=state.queryRaw,q=state.query;if(!q)return;
-  const hits=[...allPlanes()].filter(p=>matches(p,q)&&nowSec()-p.ts<DROP).sort((a,b)=>(a.gnd?1:0)-(b.gnd?1:0)||nameOf(a).localeCompare(nameOf(b)));
+  const hits=[...allPlanes()].filter(p=>matches(p,q)&&(p.ex||nowSec()-p.ts<DROP)).sort((a,b)=>(a.gnd?1:0)-(b.gnd?1:0)||nameOf(a).localeCompare(nameOf(b)));
   if(hits.length===1){selectPlane(hits[0].h,true);return;}
   if(hits.length>1){state.found=hits.slice(0,40);setTab('map',true);openSheet('find');return;}
   note('Suche „'+raw+'“ weltweit …',false,60000);
