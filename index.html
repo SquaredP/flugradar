@@ -1,0 +1,1769 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f2f4f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171c" media="(prefers-color-scheme: dark)">
+<title>Flugradar</title>
+<meta name="referrer" content="strict-origin">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://server.arcgisonline.com https://api.tiles.openaip.net; connect-src 'self' https://api.adsb.lol https://api.airplanes.live https://opensky-network.org https://globe.adsb.lol https://api.adsbdb.com https://aviationweather.gov https://nominatim.openstreetmap.org https://*.workers.dev; base-uri 'none'; form-action 'none'">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<style>
+/* Schriften liegen im Repo (vendor/fonts), damit beim Laden keine Anfrage an Google geht. */
+@font-face{font-family:"Barlow";font-weight:400;font-display:swap;src:url(vendor/fonts/barlow-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow";font-weight:500;font-display:swap;src:url(vendor/fonts/barlow-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow";font-weight:600;font-display:swap;src:url(vendor/fonts/barlow-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow Condensed";font-weight:600;font-display:swap;src:url(vendor/fonts/barlow-condensed-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow Condensed";font-weight:700;font-display:swap;src:url(vendor/fonts/barlow-condensed-latin-700-normal.woff2) format("woff2")}
+/* Layout wie Zugradar und Schiffsradar: Karte füllt den Schirm; oben Ort + Filterchips, unten Reiter und ein Blatt. */
+:root{
+  --bg:#f2f4f7; --surface:#ffffff; --line:#d3d9e0; --fg:#141c24; --muted:#5a6774;
+  --linie:#1f64a8; --ga:#1f8a4c; --heli:#b86f06; --mil:#5d6d2b; --sonst:#0a7e8c;
+  --nav:#8e3a8a; --apt:#34556e; --vfr:#1f8a4c; --mvfr:#1f64a8; --ifr:#c8202f; --lifr:#a0309a; --aip:#a35a00;
+  --late:#c8202f; --ontime:#1f8a4c; --focus:#0b6bcb; --emg:#d0102a;
+  --ui:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --sign:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#14171c; --surface:#1d2229; --line:#333b45; --fg:#e8edf2; --muted:#98a4b0;
+  --linie:#78b4ee; --ga:#55c486; --heli:#e5a84a; --mil:#a9bf5c; --sonst:#4cc3d1;
+  --nav:#d58ad0; --apt:#9fbbd0; --vfr:#55c486; --mvfr:#78b4ee; --ifr:#f0616c; --lifr:#d98ad6; --aip:#e5a84a;
+  --late:#f0616c; --ontime:#55c486; --focus:#7db8f5; --emg:#ff5a6a; color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.35 var(--ui);overflow:hidden;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--focus)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+[hidden]{display:none!important}
+.num{font-variant-numeric:tabular-nums}
+
+#app{position:fixed;inset:0;display:flex;flex-direction:column}
+#map{flex:1;min-height:0;background:var(--bg);z-index:0}
+
+.top{position:absolute;z-index:500;left:0;right:0;top:0;display:flex;flex-direction:column;gap:8px;
+  padding:calc(8px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) 0 max(12px,env(safe-area-inset-left,0px));pointer-events:none}
+.top>*{pointer-events:auto}
+.bar{display:flex;gap:8px}
+.station{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;text-align:left;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;padding:9px 12px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.station small{color:var(--muted);font-size:12px;letter-spacing:.04em;text-transform:uppercase;flex:none}
+.station b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.icon{flex:none;width:44px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.12);display:grid;place-items:center}
+.icon svg{width:20px;height:20px;stroke:var(--fg);fill:none;stroke-width:2}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;
+  padding:6px 11px;font-weight:500;box-shadow:0 1px 4px rgba(0,0,0,.1);white-space:nowrap}
+.chip i{width:10px;height:10px;border-radius:50%;background:var(--c);opacity:.35}
+.chip[aria-pressed="true"]{border-color:var(--c)}
+.chip[aria-pressed="true"] i{opacity:1}
+.chip[aria-pressed="false"]{color:var(--muted)}
+.chip[aria-expanded="true"]{border-color:var(--fg)}
+.menu{max-height:60dvh;overflow-y:auto;align-self:flex-start;max-width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.22);padding:6px 4px;min-width:230px}
+.menu h3{margin:4px 10px 2px;font:600 12px/1.2 var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.menu label{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer}
+.menu i.ring{background:none!important;border:2px solid var(--muted)}
+.menu label i{width:12px;height:12px;border-radius:50%;background:var(--c)}
+.menu input{width:18px;height:18px;margin:0}
+.menu .all{display:flex;gap:12px;padding:4px 10px 6px}
+.menu .all button{background:none;border:0;padding:4px 0;color:var(--focus);font-weight:500}
+.lineq{flex:none;width:150px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 11px;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.status{align-self:flex-start;max-width:100%;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--muted)}
+.status.err{color:var(--late);border-color:var(--late)}
+.track{align-self:flex-start;max-width:100%;display:flex;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
+.tbtn{min-width:0;background:none;border:0;padding:9px 4px 9px 14px;font:600 14px/1.2 var(--ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.tbtn::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--c);margin-right:8px}
+.tstop{flex:none;background:none;border:0;padding:0 14px;font-size:22px;line-height:1;color:var(--muted)}
+.news{align-self:flex-start;max-width:100%;display:flex;align-items:center;gap:2px;background:var(--surface);border:1px solid var(--focus);border-radius:999px;box-shadow:0 1px 4px rgba(0,0,0,.12);font-size:13px;overflow:hidden}
+.news button{background:none;border:0;padding:6px 10px;color:var(--fg);text-align:left;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.news b{color:var(--focus);font-weight:600}
+.news .nx{color:var(--muted);padding:6px 12px 6px 6px}
+.newsbox h3{font:600 15px/1.2 var(--ui);margin:14px 0 4px}
+.newsbox h3:first-child{margin-top:0}
+.newsbox ul{margin:0;padding-left:18px}.newsbox li{margin:3px 0}
+.newslink{background:none;border:0;padding:6px 0;color:var(--focus);text-decoration:underline;font-weight:500}
+.foot{display:flex;flex-wrap:wrap;gap:4px 18px;margin-top:6px}
+.about h3{font:600 15px/1.2 var(--ui);margin:18px 0 4px}.about h3:first-child{margin-top:0}
+.about p{margin:4px 0}.about ul{margin:4px 0;padding-left:18px}.about li{margin:3px 0}
+
+/* Flugzeuge auf der Karte: Silhouette in Flugrichtung, Kennung und Höhe ab Zoom 8 */
+.pm{position:absolute;left:0;top:0}
+.pm::after{content:"";position:absolute;left:-16px;top:-16px;width:32px;height:32px}
+.pm svg{position:absolute;overflow:visible;transform-origin:50% 50%}
+.pm path{fill:var(--c);stroke:var(--surface);stroke-width:1.5;stroke-linejoin:round}
+.pm.gnd svg{opacity:.55}
+.pm.old path{fill:var(--surface);stroke:var(--c);stroke-dasharray:2.5 2}
+.pm b{position:absolute;left:14px;top:-10px;display:flex;align-items:center;gap:4px;font:700 12px/1 var(--sign);letter-spacing:.02em;padding:3px 5px;border-radius:4px;color:#fff;background:var(--c);
+  border:1.5px solid var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.3);white-space:nowrap}
+.pm b em{font-style:normal;font-weight:600;font-size:11px;background:var(--surface);color:var(--fg);border-radius:3px;padding:1px 3px}
+.pm.old b{background:var(--surface);color:var(--c);border:1.5px dashed var(--c)}
+.pm.sel::before{content:"";position:absolute;left:-19px;top:-19px;width:38px;height:38px;border-radius:50%;border:3px solid var(--focus);box-sizing:border-box}
+.pm.sel b{font-size:14px;z-index:2}
+.pm.emg::before{content:"";position:absolute;left:-17px;top:-17px;width:34px;height:34px;border-radius:50%;border:3px solid var(--emg);box-sizing:border-box;animation:pulse 1.2s ease-in-out infinite}
+.pm.emg b{background:var(--emg)}
+@keyframes pulse{50%{transform:scale(1.25);opacity:.4}}
+@media (prefers-color-scheme:dark){.pm b{color:#101416}}
+.c-linie{--c:var(--linie)} .c-ga{--c:var(--ga)} .c-heli{--c:var(--heli)} .c-mil{--c:var(--mil)} .c-sonst{--c:var(--sonst)}
+.c-nav{--c:var(--nav)} .c-apt{--c:var(--apt)} .c-wx{--c:var(--vfr)} .c-aip{--c:var(--aip)} .c-emg{--c:var(--emg)}
+.c-VFR{--c:var(--vfr)} .c-MVFR{--c:var(--mvfr)} .c-IFR{--c:var(--ifr)} .c-LIFR{--c:var(--lifr)}
+/* Navigation: Funkfeuer und Flugplätze in ICAO-ähnlichen Zeichen */
+.nv{position:absolute;left:0;top:0;color:var(--c)}
+.nv svg{position:absolute;left:-10px;top:-10px;width:20px;height:20px;overflow:visible}
+.nv svg *{fill:none;stroke:var(--c);stroke-width:1.6}
+.nv svg .f,.nv svg .f *{fill:var(--c);stroke:none}
+.nv svg .s{fill:var(--surface)}
+.nv svg text{fill:var(--c);stroke:none;font:700 10px/1 var(--sign)}
+.nv i{position:absolute;left:11px;top:-6px;font:700 11px/1 var(--sign);font-style:normal;letter-spacing:.03em;white-space:nowrap;color:var(--c);
+  text-shadow:0 0 2px var(--surface),0 0 2px var(--surface),0 0 3px var(--surface)}
+.wxm{position:absolute;left:0;top:0}
+.wxm span{position:absolute;left:5px;top:-15px;width:11px;height:11px;border-radius:50%;background:var(--c);border:2px solid var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.rlab{background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.18);
+  font:600 13px/1.2 var(--sign);padding:2px 7px;white-space:nowrap}
+.rlab.dest{border-color:var(--c);color:var(--c)}
+.rlab:before{display:none}
+.leaflet-container{font-family:var(--ui);background:var(--bg)}
+.leaflet-control-attribution{font-size:10px;background:color-mix(in srgb,var(--surface) 80%,transparent)!important;color:var(--muted)}
+.leaflet-control-attribution a{color:var(--muted)}
+.me{width:14px;height:14px;border-radius:50%;background:var(--focus);border:3px solid var(--surface);box-shadow:0 0 0 2px var(--focus);transform:translate(-50%,-50%);position:absolute}
+.pin{position:absolute;width:18px;height:18px;transform:translate(-50%,-50%);border-radius:50%;border:3px solid var(--fg);background:var(--surface);box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.pin::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--fg)}
+
+/* Blatt */
+.sheet{position:relative;z-index:600;background:var(--surface);border-top:1px solid var(--line);max-height:62dvh;display:flex;flex-direction:column;
+  box-shadow:0 -6px 18px rgba(0,0,0,.14);padding:0 max(14px,env(safe-area-inset-right,0px)) 0 max(14px,env(safe-area-inset-left,0px))}
+.sheet header{display:flex;align-items:center;gap:10px;padding:12px 0 8px}
+.sheet header h2{flex:1;min-width:0;margin:0;font:600 17px/1.2 var(--ui);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sheet header h2 span{color:var(--muted);font-weight:400}
+.x{background:none;border:1px solid var(--line);border-radius:8px;padding:5px 10px;color:var(--muted)}
+.body{overflow-y:auto;min-height:0;padding-bottom:12px;display:flex;flex-direction:column;gap:10px}
+.badge{flex:none;font:700 15px/1 var(--sign);letter-spacing:.02em;padding:5px 7px;border-radius:5px;background:var(--c);color:#fff;white-space:nowrap;max-width:62vw;overflow:hidden;text-overflow:ellipsis}
+@media (prefers-color-scheme:dark){.badge{color:#101416}}
+.nowrow{display:flex;gap:12px;align-items:center;justify-content:space-between}
+.now{font-weight:500;min-width:0;flex:1}
+.now small{display:block;color:var(--muted);font-weight:400}
+.kpis{flex:none;display:flex;gap:14px}
+.speed{flex:none;text-align:right;font:700 28px/1 var(--sign);letter-spacing:.01em;white-space:nowrap}
+.speed small{display:block;margin-top:3px;font:500 11px/1.2 var(--ui);color:var(--muted);letter-spacing:0}
+.late{color:var(--late);font-weight:600} .ok{color:var(--ontime);font-weight:600}
+.route{display:flex;gap:10px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.route .ap{flex:1;min-width:0}
+.route .ap b{display:block;font:700 22px/1 var(--sign)}
+.route .ap small{display:block;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.route .ap.r{text-align:right}
+.route .arrow{flex:none;color:var(--muted);font-size:20px}
+.acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-weight:500;text-decoration:none;color:inherit}
+.btn[aria-pressed="true"]{background:var(--fg);color:var(--surface);border-color:var(--fg)}
+.btn.pri{background:var(--fg);color:var(--surface);border-color:var(--fg)}
+.btn:disabled{opacity:.6}
+.field{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+.favbox{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
+.favbox p{flex-basis:100%;margin:0;color:var(--muted);font-size:13px}
+.facts{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:5px 14px;margin:0}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;overflow-wrap:anywhere}
+.links{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14px}
+.wx{display:flex;flex-direction:column;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.wx .h{display:flex;align-items:center;gap:8px}
+.wx .h b{flex:1;min-width:0;font-weight:600}
+.wx .cat{flex:none;font:700 13px/1 var(--sign);padding:4px 6px;border-radius:4px;background:var(--c);color:#fff}
+@media (prefers-color-scheme:dark){.wx .cat{color:#101416}}
+.wx code{font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);overflow-wrap:anywhere}
+
+.rows{list-style:none;margin:0;padding:0}
+.rows li{border-top:1px solid var(--line)}
+.row{width:100%;display:grid;grid-template-columns:58px auto minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;background:none;border:0;padding:9px 0}
+.row .t{font:600 15px/1.1 var(--ui)}
+.row .t small{display:block;font-weight:600;font-size:12px;color:var(--muted);white-space:nowrap}
+.row .t small.now{color:var(--ontime)}
+.row .d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .d small{display:block;color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis}
+.row .g{color:var(--muted);font-size:13px;white-space:nowrap}
+.sub{margin:2px 0 -4px;font:600 12px/1 var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.hint{color:var(--muted);margin:0}
+.check{display:flex;gap:8px;align-items:center}
+.fav{border-top:1px solid var(--line);padding:10px 0;display:flex;align-items:center;gap:8px}
+.fav .open{flex:1;min-width:0;display:flex;align-items:center;gap:10px;background:none;border:0;padding:0;text-align:left}
+.fav .open p{flex:1;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fav .open p small{display:block;color:var(--muted)}
+
+nav{position:relative;z-index:600;display:grid;grid-template-columns:repeat(3,1fr);background:var(--surface);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{background:none;border:0;padding:11px 4px 10px;font-weight:500;color:var(--muted);border-top:3px solid transparent}
+nav button[aria-current="true"]{color:var(--fg);border-top-color:var(--fg)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top">
+    <div class="bar">
+      <button class="station" id="placeBtn" type="button"><small>Mein Ort</small><b id="placeName">wählen</b></button>
+      <button class="icon" id="locBtn" type="button" aria-label="Karte auf meinen Standort zentrieren">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+      </button>
+    </div>
+    <div class="chips" id="chips">
+      <button class="chip" id="typeBtn" type="button" aria-haspopup="true" aria-expanded="false"><span id="typeTxt">Typen</span> ▾</button>
+      <button class="chip c-nav" id="navChip" type="button" aria-pressed="true"><i></i>Navigation</button>
+      <button class="chip c-wx" id="wxChip" type="button" aria-pressed="true"><i></i>Wetter</button>
+      <button class="chip c-aip" id="aipChip" type="button" aria-pressed="false"><i></i>Luftraum</button>
+      <input class="lineq" id="planeQ" type="search" placeholder="Flug, Kennz., Typ" enterkeyhint="search" autocomplete="off" aria-label="Nach Flug, Kennzeichen, Typ oder Hex-Code filtern">
+    </div>
+    <div class="menu" id="menu" hidden></div>
+    <div class="status num" id="status" role="status">Lade Flugzeuge …</div>
+    <div class="news" id="hint" hidden><button id="hintOpen" type="button"><b>Hinweis: </b>Flugzeuge erscheinen ab Zoom 6 und werden nur für den sichtbaren Ausschnitt geladen.</button><button class="nx" id="hintX" type="button" aria-label="Hinweis schließen">×</button></div>
+    <div class="news" id="news" hidden><button id="newsOpen" type="button"></button><button class="nx" id="newsX" type="button" aria-label="Hinweis schließen">×</button></div>
+    <div class="track" id="track" hidden><button class="tbtn" id="trackOpen" type="button" aria-label="Verfolgtes Flugzeug anzeigen"></button><button class="tstop" id="trackStop" type="button" aria-label="Verfolgung beenden">×</button></div>
+  </div>
+
+  <div id="map"></div>
+
+  <section class="sheet" id="sheet" hidden>
+    <header><span class="badge" id="shBadge" hidden></span><h2 id="shTitle"></h2><button class="x" id="shClose" type="button">Schließen</button></header>
+    <div class="body" id="shBody"></div>
+  </section>
+
+  <nav>
+    <button type="button" data-tab="map" aria-current="true">Karte</button>
+    <button type="button" data-tab="pass">Mein Ort</button>
+    <button type="button" data-tab="fav">Meine Flüge</button>
+  </nav>
+</div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script>
+/* ===== PURE ===== */
+const CATS={linie:'Verkehrsflugzeuge',ga:'Allgemeine Luftfahrt',heli:'Hubschrauber',mil:'Militär',sonst:'Segelflug · Sonstige'};
+const CAT_ORDER=['linie','ga','heli','mil','sonst'];
+const KN=0.514444,FT=0.3048,NM=1852,R_EARTH=6371008.8,RAD=Math.PI/180;
+const STALE=60;        // ab 60 s ohne neue Position gestrichelt
+const EXTRAP_MAX=60;   // Position höchstens 60 s geradeaus fortschreiben
+const DROP=300;        // nach 5 min ohne Position aus der Liste (verfolgte und gemerkte bleiben)
+const AHEAD=300;       // Kurslinie: 5 Minuten voraus
+/* ADS-B-Emitterkategorie (DO-260B) */
+const EC={A1:'Leichtflugzeug (bis 7 t)',A2:'Kleines Flugzeug (7 bis 34 t)',A3:'Großes Flugzeug (34 bis 136 t)',A4:'Großes Flugzeug, starke Wirbelschleppe',
+  A5:'Schweres Flugzeug (über 136 t)',A6:'Hochleistungsflugzeug',A7:'Hubschrauber',B1:'Segelflugzeug',B2:'Ballon oder Luftschiff',B3:'Fallschirmspringer',
+  B4:'Ultraleichtflugzeug',B6:'Drohne',B7:'Raumfahrzeug',C1:'Einsatzfahrzeug am Boden',C2:'Servicefahrzeug am Boden',C3:'Hindernis'};
+const HELI_T=/^(EC\d\d|H1[2-7]\d|H160|H175|H215|H225|AS3\d|AS5\d|AS6\d|A109|A119|A1[3-8]9|AW\d+|B06T?|B212|B222|B230|B407|B412|B427|B429|B430|B505|R22|R44|R66|S61|S64|S76|S92|BK17|MD5\d\d|MD60|EXPL|NH90|UH\d+|CH\d+|H60|H47|H53|H64|SA3\d+|ALO2|ALO3|LYNX|KMAX|G2CA|EN28|EN48|S300|TIGR|PUMA|GAZL)$/;
+const BIZ_T=/^(C25[ABCM]|C500|C501|C510|C525|C550|C55B|C560|C56X|C650|C680|C68A|C700|C750|CL30|CL35|CL60|GL5T|GL6T|GL7T|GLEX|GLF[2-6]|G150|G280|GA[5-8]C|FA[1-9]X|FA50|F2TH|F900|E35L|E545|E550|E50P|E55P|LJ\d\d|H25[AB]|HA4T|BE40|PRM1|HDJT|SF50|EA50|PC12|PC24|P180|TBM\d|BE20|BE30|B350|BE9L|BE9T|PAY\d|P46T|PA46|C208)$/;
+const PROP_BIZ=/^(PC12|TBM\d|BE20|BE30|B350|BE9L|BE9T|PAY\d|P46T|PA46|C208|P180)$/;
+const airlineCs=cs=>/^[A-Z]{3}\d/.test(cs||'');
+function catOf(p){
+  const e=p.ec||'';
+  if((p.db&1)||e==='A6')return 'mil';
+  if(e==='A7'||HELI_T.test(p.t||''))return 'heli';
+  if(e==='A3'||e==='A4'||e==='A5')return 'linie';
+  if(e==='A2')return airlineCs(p.cs)&&!BIZ_T.test(p.t||'')?'linie':'ga';
+  if(e==='A1')return 'ga';
+  if(e[0]==='B'||e[0]==='C')return 'sonst';
+  /* ohne Kategorie: grob nach Rufzeichen, Typ und Höhe */
+  if(airlineCs(p.cs)&&!BIZ_T.test(p.t||''))return 'linie';
+  if(p.alt!=null&&p.alt>25000&&!BIZ_T.test(p.t||''))return 'linie';
+  return 'ga';
+}
+/* Silhouette und Größe in Pixel */
+function shapeOf(p,cat){
+  const e=p.ec||'';
+  if(cat==='heli')return['heli',20];
+  if(e==='B2')return['balloon',14];
+  if(e[0]==='C')return['veh',10];
+  if(e==='B1'||e==='B3'||e==='B4')return['glider',20];
+  if(e==='A6'||(cat==='mil'&&!/^A[2-5]$/.test(e)))return['fighter',20];
+  if(e==='A5')return['jet',28];
+  if(e==='A3'||e==='A4')return['jet',24];
+  if(e==='A2')return PROP_BIZ.test(p.t||'')?['prop',20]:['jet',20];
+  if(e==='A1'||cat==='ga')return PROP_BIZ.test(p.t||'')||!BIZ_T.test(p.t||'')?['prop',18]:['jet',18];
+  return cat==='linie'?['jet',24]:['prop',18];
+}
+const SHAPES={
+  jet:'M16 2C17.1 2 17.8 3.2 17.8 4.6V12L28.8 18.4V21L17.8 17.6V24.2L21.2 26.8V28.8L16 27.4L10.8 28.8V26.8L14.2 24.2V17.6L3.2 21V18.4L14.2 12V4.6C14.2 3.2 14.9 2 16 2Z',
+  prop:'M16 3C16.9 3 17.4 4 17.4 5.2V11H29V14L17.4 15V22.5L21 23.6V26H11V23.6L14.6 22.5V15L3 14V11H14.6V5.2C14.6 4 15.1 3 16 3Z',
+  heli:'M16 8A5 5 0 1 1 16 18A5 5 0 1 1 16 8ZM15.2 17.5H16.8V28H15.2ZM12.5 26.6H19.5V28.4H12.5ZM4.6 6.2L5.8 4.8L27.4 19.8L26.2 21.2ZM26.2 4.8L27.4 6.2L5.8 21.2L4.6 19.8Z',
+  glider:'M16 4C16.7 4 17 5 17 6V13L30.5 14.4V16L17 15.6V25L19.8 26V27.6H12.2V26L15 25V15.6L1.5 16V14.4L15 13V6C15 5 15.3 4 16 4Z',
+  fighter:'M16 2L18 9L18.5 14L28 22V24.5L18.5 21L18 25L21 27.5V29.5L16 28L11 29.5V27.5L14 25L13.5 21L4 24.5V22L13.5 14L14 9Z',
+  balloon:'M16 3A10 10 0 1 1 16 23A10 10 0 1 1 16 3ZM13 24H19L18 29H14Z',
+  veh:'M10 6H22V26H10Z'
+};
+/* Kugelgeometrie (Großkreis), ausreichend genau für Anzeige und Schätzungen */
+function dist(a,b){const p1=a[0]*RAD,p2=b[0]*RAD,dp=p2-p1,dl=(b[1]-a[1])*RAD;const h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;return 2*R_EARTH*Math.asin(Math.min(1,Math.sqrt(h)));}
+function bearing(a,b){const p1=a[0]*RAD,p2=b[0]*RAD,dl=(b[1]-a[1])*RAD;const y=Math.sin(dl)*Math.cos(p2),x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);return(Math.atan2(y,x)/RAD+360)%360;}
+function project(p,brg,m){
+  const d=m/R_EARTH,t=brg*RAD,p1=p[0]*RAD,l1=p[1]*RAD;
+  const p2=Math.asin(Math.sin(p1)*Math.cos(d)+Math.cos(p1)*Math.sin(d)*Math.cos(t));
+  const l2=l1+Math.atan2(Math.sin(t)*Math.sin(d)*Math.cos(p1),Math.cos(d)-Math.sin(p1)*Math.sin(p2));
+  return[p2/RAD,((l2/RAD+540)%360)-180];
+}
+/* Punkte entlang des Großkreises; Längen bleiben fortlaufend, damit Linien über die Datumsgrenze nicht quer über die Karte laufen */
+function gcPoints(a,b,n){
+  const d=dist(a,b);if(d<1000)return[a,b];
+  n=n||Math.max(2,Math.min(128,Math.ceil(d/50000)));
+  const p1=a[0]*RAD,l1=a[1]*RAD,p2=b[0]*RAD,l2=b[1]*RAD,D=d/R_EARTH,out=[];
+  for(let i=0;i<=n;i++){
+    const f=i/n,A=Math.sin((1-f)*D)/Math.sin(D),B=Math.sin(f*D)/Math.sin(D);
+    const x=A*Math.cos(p1)*Math.cos(l1)+B*Math.cos(p2)*Math.cos(l2),y=A*Math.cos(p1)*Math.sin(l1)+B*Math.cos(p2)*Math.sin(l2),z=A*Math.sin(p1)+B*Math.sin(p2);
+    out.push([Math.atan2(z,Math.hypot(x,y))/RAD,Math.atan2(y,x)/RAD]);
+  }
+  out[0]=[a[0],a[1]];
+  for(let i=1;i<out.length;i++){while(out[i][1]-out[i-1][1]>180)out[i][1]-=360;while(out[i][1]-out[i-1][1]<-180)out[i][1]+=360;}
+  return out;
+}
+function angDiff(a,b){const d=Math.abs(a-b)%360;return d>180?360-d:d;}
+function compass(b){return['Nord','Nordost','Ost','Südost','Süd','Südwest','West','Nordwest'][Math.round(b/45)%8];}
+/* Geschätzte Position jetzt: letzte Meldung, geradeaus mit Kurs und Geschwindigkeit fortgeschrieben (höchstens 60 s, am Boden 15 s) */
+function planePos(p,now){
+  const age=Math.max(0,now-p.ts),ll=[p.lat,p.lon];
+  if(p.trk==null||p.gs==null||p.gs<(p.gnd?3:30))return{ll,age,est:false};
+  const dt=Math.min(age,p.gnd?15:EXTRAP_MAX);
+  return{ll:dt>0?project(ll,p.trk,p.gs*KN*dt):ll,age,est:dt>5};
+}
+/* Nächste Annäherung an einen Ort, geradeaus mit Kurs und Geschwindigkeit (ebene Näherung, genau genug bis etwa 100 km) */
+function approach(pl,pos,trk,gsKt,horizon){
+  const k=Math.cos(pl[0]*RAD)*111320,rx=(pos[1]-pl[1])*k,ry=(pos[0]-pl[0])*111320;
+  const v=gsKt*KN,vx=v*Math.sin(trk*RAD),vy=v*Math.cos(trk*RAD),vv=vx*vx+vy*vy;
+  let t=vv>0?-(rx*vx+ry*vy)/vv:0;t=Math.max(0,Math.min(horizon,t));
+  return{t,d:Math.hypot(rx+vx*t,ry+vy*t)};
+}
+/* Höhenwinkel über dem Horizont (Grad), aus Flughöhe über dem Ort und Entfernung */
+function elevAngle(altFt,elevFt,d){if(altFt==null)return null;const h=Math.max(0,(altFt-(elevFt||0))*FT);return Math.atan2(h,Math.max(d,1))/RAD;}
+function phase(p){
+  if(p.gnd)return p.gs>=5?'Rollt':'Am Boden';
+  if(p.vr!=null&&p.vr>=500)return 'Steigflug';
+  if(p.vr!=null&&p.vr<=-500)return 'Sinkflug';
+  if(p.alt!=null&&p.alt>=18000)return 'Reiseflug';
+  return 'Im Flug';
+}
+const SQUAWK={'7500':'Entführung','7600':'Funkausfall','7700':'Notfall','7000':'VFR-Flug (Standardcode)','2000':'ohne zugewiesenen Code','1200':'VFR-Flug (Nordamerika)','0020':'Luftrettung (Deutschland)'};
+const EMG={general:'Notfall',lifeguard:'Medizinischer Notfall',minfuel:'Treibstoffmangel',nordo:'Funkausfall',unlawful:'Entführung',downed:'Notlandung',reserved:'Notfall'};
+function isEmg(p){return p.sq==='7500'||p.sq==='7600'||p.sq==='7700'||!!p.em;}
+function emgText(p){return p.em&&EMG[p.em]?EMG[p.em]:SQUAWK[p.sq]||'Notfall';}
+/* Fluggesellschaften: ICAO-Rufzeichenpräfix, IATA-Code, Name (für Flugnummern wie „LH 400“ ↔ Rufzeichen „DLH400“) */
+const AIRLINES='DLH LH Lufthansa|EWG EW Eurowings|CFG DE Condor|OCN 4Y Discover Airlines|CLH CL Lufthansa CityLine|DLA EN Air Dolomiti|TUI X3 TUIfly|GEC LH Lufthansa Cargo|BOX 3S AeroLogic|'+
+  'RYR FR Ryanair|RUK RK Ryanair UK|MAY AL Malta Air|LDM OE Lauda Europe|EZY U2 easyJet|EJU EC easyJet Europe|EZS DS easyJet Switzerland|WZZ W6 Wizz Air|WMT W4 Wizz Air Malta|'+
+  'BAW BA British Airways|AFR AF Air France|KLM KL KLM|TRA HV Transavia|SWR LX Swiss|EDW WK Edelweiss|OAW 2L Helvetic|AUA OS Austrian|BEL SN Brussels Airlines|THY TK Turkish Airlines|'+
+  'PGT PC Pegasus|SXS XQ SunExpress|UAE EK Emirates|QTR QR Qatar Airways|ETD EY Etihad|IBE IB Iberia|VLG VY Vueling|AEA UX Air Europa|TAP TP TAP Air Portugal|ITY AZ ITA Airways|'+
+  'SAS SK SAS|FIN AY Finnair|LOT LO LOT|CSA OK Czech Airlines|TVS QS Smartwings|AEE A3 Aegean|EIN EI Aer Lingus|ICE FI Icelandair|NAX DY Norwegian|BTI BT airBaltic|VOE V7 Volotea|'+
+  'LGL LG Luxair|CTN OU Croatia Airlines|ASL JU Air Serbia|ROT RO Tarom|UAL UA United|DAL DL Delta|AAL AA American Airlines|ACA AC Air Canada|SIA SQ Singapore Airlines|'+
+  'CPA CX Cathay Pacific|ANA NH ANA|JAL JL Japan Airlines|CCA CA Air China|ELY LY El Al|RAM AT Royal Air Maroc|MSR MS EgyptAir|ETH ET Ethiopian|SVA SV Saudia|KAL KE Korean Air|'+
+  'AIC AI Air India|FDX FX FedEx|UPS 5X UPS|CLX CV Cargolux|TOM BY TUI Airways|JAF TB TUI fly Belgium';
+const AL=(()=>{const icao={},iata={};for(const x of AIRLINES.split('|')){const[a,b,...n]=x.split(' ');icao[a]={iata:b,name:n.join(' ')};if(!iata[b])iata[b]=a;}return{icao,iata};})();
+function flightNo(cs){const m=String(cs||'').match(/^([A-Z]{3})(\d{1,4}[A-Z]?)$/);return m&&AL.icao[m[1]]?AL.icao[m[1]].iata+' '+m[2].replace(/^0+(?=\d)/,''):'';}
+function airlineOf(cs){const m=String(cs||'').match(/^([A-Z]{3})\d/);return m&&AL.icao[m[1]]?AL.icao[m[1]].name:'';}
+/* „LH400“, „lh 400“ -> „DLH400“ */
+function toCallsign(q){
+  const m=String(q||'').toUpperCase().replace(/\s+/g,'').match(/^([A-Z0-9]{2})(\d{1,4}[A-Z]?)$/);
+  if(!m||/^\d\d$/.test(m[1])||!AL.iata[m[1]])return '';
+  return AL.iata[m[1]]+m[2].replace(/^0+(?=\d)/,'');
+}
+function norm(s){return String(s||'').normalize('NFD').toLowerCase().replace(/[^a-z0-9]/g,'');}
+function matches(p,q){
+  if(!q)return true;
+  return norm(p.cs).includes(q)||norm(p.r).includes(q)||p.h.startsWith(q)||norm(p.t)===q||(q.length>=3&&norm(flightNo(p.cs)).includes(q));
+}
+function nameOf(p){return p.cs||p.r||p.h.toUpperCase();}
+const nf=(x,d)=>Number(x).toLocaleString('de-DE',{maximumFractionDigits:d==null?1:d,minimumFractionDigits:0});
+function fmtAlt(ft){if(ft==null)return '–';return ft>=5000?'FL'+String(Math.round(ft/100)).padStart(3,'0'):nf(Math.round(ft/50)*50,0)+' ft';}
+function altShort(ft){return ft>=5000?'FL'+String(Math.round(ft/1000)*10).padStart(3,'0'):nf(Math.round(ft/500)*500,0)+' ft';}
+function vArrow(vr){return vr==null?'':vr>=300?' ↑':vr<=-300?' ↓':'';}
+function fmtKm(m){return m<1000?Math.round(m/10)*10+' m':m<10000?nf(m/1000,1)+' km':nf(Math.round(m/1000),0)+' km';}
+const MORSE={A:'·−',B:'−···',C:'−·−·',D:'−··',E:'·',F:'··−·',G:'−−·',H:'····',I:'··',J:'·−−−',K:'−·−',L:'·−··',M:'−−',N:'−·',O:'−−−',P:'·−−·',Q:'−−·−',R:'·−·',S:'···',T:'−',
+  U:'··−',V:'···−',W:'·−−',X:'−··−',Y:'−·−−',Z:'−−··',0:'−−−−−',1:'·−−−−',2:'··−−−',3:'···−−',4:'····−',5:'·····',6:'−····',7:'−−···',8:'−−−··',9:'−−−−·'};
+function morse(s){return String(s||'').toUpperCase().split('').map(c=>MORSE[c]).filter(Boolean).join('\u2003');}
+/* Frequenz eines Funkfeuers: UKW-Feuer in MHz, NDB in kHz. Einige Einträge in OurAirports haben eine Stelle zu wenig. */
+function navFreq(type,khz){
+  if(!khz)return '';
+  if(/NDB/.test(type))return nf(khz,1)+' kHz';
+  let k=khz;while(k<100000)k*=10;
+  return (k/1000).toFixed(2).replace('.',',')+' MHz';
+}
+const NAVTYPE={'VOR':'VOR (UKW-Drehfunkfeuer)','VOR-DME':'VOR mit DME','VORTAC':'VORTAC (VOR mit militärischem TACAN)','TACAN':'TACAN (militärisch)','DME':'DME (Entfernungsmessung)','NDB':'NDB (ungerichtetes Funkfeuer)','NDB-DME':'NDB mit DME'};
+const USAGE={HI:'oberer Luftraum',LO:'unterer Luftraum',BOTH:'oberer und unterer Luftraum',TERMINAL:'Flughafennähe',RNAV:'Flächennavigation'};
+const APTTYPE={L:'Großer Verkehrsflughafen',M:'Flughafen',S:'Flugplatz',H:'Hubschrauberlandeplatz',W:'Wasserflugplatz'};
+function surface(s){
+  const u=String(s||'').toUpperCase();
+  if(/^(ASP|ASPH|BIT|TAR|PEM)/.test(u))return 'Asphalt';if(/^CON/.test(u))return 'Beton';if(/^(GRS|GRASS|TURF|GRE)/.test(u))return 'Gras';
+  if(/^(GRV|GRAVEL|GVL)/.test(u))return 'Schotter';if(/^WAT/.test(u))return 'Wasser';if(/^SAND/.test(u))return 'Sand';if(/^(DIRT|SOIL|CLA|EARTH)/.test(u))return 'Erde';
+  return s||'';
+}
+/* METAR lesen: Wind, Sicht, Wetter, Wolken, Temperatur, QNH; Flugwetterkategorie wie bei aviationweather.gov */
+const WX={RA:'Regen',SN:'Schnee',DZ:'Niesel',TS:'Gewitter',FG:'Nebel',BR:'Dunst',HZ:'Trübung',GR:'Hagel',GS:'Graupel',SG:'Schneegriesel',PL:'Eiskörner',IC:'Eisnadeln',
+  UP:'Niederschlag',FU:'Rauch',DU:'Staub',SA:'Sand',VA:'Vulkanasche',SQ:'Böen',FC:'Trichterwolke',SS:'Sandsturm',DS:'Staubsturm',SH:'Schauer',FZ:'gefrierend',BL:'Treiben',MI:'flach',BC:'Schwaden',PR:'teilweise',DR:'Fegen'};
+function decodeMetar(raw){
+  const o={raw:String(raw||'').trim(),clouds:[],wx:[]};
+  const toks=o.raw.replace(/=$/,'').split(/\s+/);
+  for(let i=0;i<toks.length;i++){
+    const w=toks[i];let m;
+    if(/^(TEMPO|BECMG|RMK|NOSIG|FCST)$/.test(w))break;
+    if(i===0&&/^(METAR|SPECI)$/.test(w))continue;
+    if(!o.id&&/^[A-Z][A-Z0-9]{3}$/.test(w)){o.id=w;continue;}
+    if((m=w.match(/^(\d{2})(\d{2})(\d{2})Z$/))){o.time={d:+m[1],h:+m[2],mi:+m[3]};continue;}
+    if(!o.wind&&(m=w.match(/^(\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?(KT|MPS|KMH)$/))){
+      const f=m[4]==='MPS'?1.943844:m[4]==='KMH'?0.539957:1;o.wind={dir:m[1]==='VRB'?null:+m[1],kt:Math.round(+m[2]*f),g:m[3]?Math.round(+m[3]*f):null};continue;}
+    if(w==='CAVOK'){o.cavok=true;o.vis=10000;continue;}
+    if(o.vis==null&&(m=w.match(/^(\d{4})(NDV)?$/))){o.vis=m[1]==='9999'?10000:+m[1];continue;}
+    if(o.vis==null&&(m=w.match(/^(M?)(\d+)(?:\/(\d+))?SM$/))){
+      let v=m[3]?+m[2]/+m[3]:+m[2];
+      if(!m[3]&&/^\d$/.test(toks[i-1]||'')&&!o.wind)v+=0;
+      o.vis=Math.round(v*1609);continue;}
+    if((m=w.match(/^(FEW|SCT|BKN|OVC|VV)(\d{3}|\/\/\/)(CB|TCU)?$/))){o.clouds.push({c:m[1],ft:m[2]==='///'?null:+m[2]*100,x:m[3]||''});continue;}
+    if(/^(SKC|NSC|NCD|CLR)$/.test(w)){o.nsc=true;continue;}
+    if((m=w.match(/^(M?\d{2})\/(M?\d{2})?$/))){o.t=+m[1].replace('M','-');o.dp=m[2]?+m[2].replace('M','-'):null;continue;}
+    if((m=w.match(/^Q(\d{4})$/))){o.qnh=+m[1];continue;}
+    if((m=w.match(/^A(\d{4})$/))){o.qnh=Math.round(+m[1]/100*33.8639);continue;}
+    if((m=w.match(/^(\+|-|VC)?((?:MI|BC|PR|DR|BL|SH|TS|FZ)?)((?:DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)*)$/))&&(m[2]||m[3])){
+      const parts=[];if(m[1]==='-')parts.push('leichter');if(m[1]==='+')parts.push('starker');
+      const d=m[2]?WX[m[2]]||'':'';const ph=(m[3].match(/../g)||[]).map(x=>WX[x]||x).join(' und ');
+      if(m[2]==='SH')parts.push(ph?ph+'schauer':'Schauer');else if(m[2]==='TS')parts.push('Gewitter'+(ph?' mit '+ph:''));else{if(d)parts.push(d);if(ph)parts.push(ph);}
+      if(m[1]==='VC')parts.push('in der Umgebung');
+      o.wx.push(parts.join(' '));continue;}
+  }
+  o.cat=metarCat(o);
+  return o;
+}
+function metarCat(o){
+  const ceil=Math.min(Infinity,...o.clouds.filter(c=>/BKN|OVC|VV/.test(c.c)&&c.ft!=null).map(c=>c.ft));
+  const v=o.vis;if(v==null&&ceil===Infinity&&!o.cavok)return '';
+  if(ceil<500||(v!=null&&v<1600))return 'LIFR';
+  if(ceil<1000||(v!=null&&v<4800))return 'IFR';
+  if(ceil<=3000||(v!=null&&v<=8000))return 'MVFR';
+  return 'VFR';
+}
+const CLOUD={FEW:'wenige',SCT:'aufgelockert',BKN:'durchbrochen',OVC:'bedeckt',VV:'Vertikalsicht'};
+function metarText(o){
+  const out=[];
+  if(o.wind){const w=o.wind;out.push(w.kt===0?'Windstill':'Wind '+(w.dir==null?'umlaufend':String(w.dir).padStart(3,'0')+'°')+' '+w.kt+' kt'+(w.g?', Böen '+w.g+' kt':''));}
+  if(o.cavok)out.push('CAVOK (Sicht über 10 km, keine Wolken unter 5.000 ft)');
+  else if(o.vis!=null)out.push('Sicht '+(o.vis>=10000?'über 10 km':o.vis>=5000?nf(o.vis/1000,0)+' km':nf(o.vis,0)+' m'));
+  if(o.wx.length)out.push(o.wx.join(', '));
+  if(!o.cavok){
+    if(o.clouds.length)out.push('Wolken '+o.clouds.map(c=>CLOUD[c.c]+(c.ft!=null?' '+nf(c.ft,0)+' ft':'')+(c.x==='CB'?' (Cumulonimbus)':c.x==='TCU'?' (Quellwolken)':'')).join(', '));
+    else if(o.nsc)out.push('keine nennenswerten Wolken');
+  }
+  if(o.t!=null)out.push(o.t+' °C'+(o.dp!=null?', Taupunkt '+o.dp+' °C':''));
+  if(o.qnh)out.push('QNH '+o.qnh+' hPa');
+  return out.join(' · ');
+}
+const CATTXT={VFR:'Sichtflug',MVFR:'Sichtflug eingeschränkt',IFR:'Instrumentenflug',LIFR:'Instrumentenflug, sehr schlecht'};
+/* Überlappende Namen ausblenden (wie Zugradar). Reihenfolge = Priorität. */
+function declutter(items,fixed){
+  const boxes=(fixed||[]).slice(),out=[];
+  for(const it of items){
+    const hit=boxes.some(b=>Math.abs(b.x-it.x)*2<b.w+it.w&&Math.abs(b.y-it.y)*2<b.h+it.h);
+    out.push(!hit);if(!hit)boxes.push(it);
+  }
+  return out;
+}
+const boxW=s=>14+7*String(s||'').length;
+function parseChangelog(md){
+  const out=[];let cur=null;
+  for(const line of String(md).split(/\r?\n/)){
+    const h=line.match(/^##\s+(.+?)\s*$/);
+    if(h){cur={v:h[1],items:[]};out.push(cur);continue;}
+    const it=line.match(/^\s*[-*]\s+(.+?)\s*$/);
+    if(it&&cur)cur.items.push(it[1]);
+  }
+  return out.filter(e=>e.items.length);
+}
+/* Datensätze der Quellen vereinheitlichen. ADSBexchange-v2-Format (adsb.lol, airplanes.live, tar1090) */
+const numv=v=>typeof v==='number'&&isFinite(v)?v:null;
+function fromV2(a,now){
+  if(!a||numv(a.lat)==null||numv(a.lon)==null||!a.hex)return null;
+  const gnd=a.alt_baro==='ground',hex=String(a.hex).toLowerCase();
+  const p={h:hex.replace(/^~/,''),tis:hex[0]==='~',cs:String(a.flight||'').trim(),r:a.r||'',t:a.t||'',desc:a.desc||'',op:a.ownOp||'',y:a.year||'',ec:a.category||'',db:a.dbFlags|0,
+    lat:a.lat,lon:a.lon,ts:now-(numv(a.seen_pos)!=null?a.seen_pos:numv(a.seen)||0),gnd,alt:gnd?0:numv(a.alt_baro)!=null?a.alt_baro:numv(a.alt_geom),galt:numv(a.alt_geom),
+    vr:numv(a.baro_rate)!=null?a.baro_rate:numv(a.geom_rate),gs:numv(a.gs),trk:numv(a.track)!=null?a.track:numv(a.true_heading)!=null?a.true_heading:numv(a.mag_heading),
+    sq:a.squawk||'',em:a.emergency&&a.emergency!=='none'?a.emergency:'',ias:numv(a.ias),tas:numv(a.tas),mach:numv(a.mach),mcp:numv(a.nav_altitude_mcp),qnh:numv(a.nav_qnh),
+    ws:numv(a.ws),wd:numv(a.wd),oat:numv(a.oat),src:a.type||''};
+  return p;
+}
+/* OpenSky-Zustandsvektor (Meter, m/s) */
+const OS_CAT=['','','A1','A2','A3','A4','A5','A6','A7','B1','B2','B3','B4','','B6','B7','C1','C2','C3','C3','C3'];
+function fromOpenSky(s,now){
+  if(!s||s[5]==null||s[6]==null)return null;
+  const m2f=x=>x==null?null:Math.round(x/FT);
+  return{h:String(s[0]).toLowerCase(),tis:false,cs:String(s[1]||'').trim(),r:'',t:'',desc:'',op:'',y:'',ec:OS_CAT[s[17]]||'',db:0,lat:s[6],lon:s[5],ts:s[3]||s[4]||now,
+    gnd:!!s[8],alt:s[8]?0:m2f(s[7]),galt:m2f(s[13]),vr:s[11]==null?null:Math.round(s[11]/FT*60),gs:s[9]==null?null:s[9]/KN,trk:s[10],sq:s[14]||'',em:'',
+    src:['adsb','asterix','mlat','flarm'][s[16]]||''};
+}
+const SRC={adsb_icao:'ADS-B',adsb_icao_nt:'ADS-B',adsr_icao:'ADS-R',tisb_icao:'TIS-B',tisb_trackfile:'TIS-B',adsc:'ADS-C (Satellit)',mlat:'MLAT (berechnet aus Laufzeiten)',mode_s:'Mode S',other:'sonstige',adsb:'ADS-B',flarm:'FLARM'};
+/* Route einer Datenbank (adsb.lol routeset): bei mehreren Abschnitten den passendsten zur Position wählen */
+function pickLeg(aps,pos){
+  if(!aps||aps.length<2)return null;
+  let best=null;
+  for(let i=0;i+1<aps.length;i++){
+    const a=[aps[i].lat,aps[i].lon],b=[aps[i+1].lat,aps[i+1].lon];
+    const sc=pos?dist(a,pos)+dist(pos,b)-dist(a,b):i;
+    if(!best||sc<best.sc)best={sc,o:aps[i],d:aps[i+1]};
+  }
+  return best;
+}
+/* ===== /PURE ===== */
+
+const $=id=>document.getElementById(id);
+const store={get(k,d){try{const v=localStorage.getItem('fr.'+k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{localStorage.setItem('fr.'+k,JSON.stringify(v));}catch(e){}},del(k){try{localStorage.removeItem('fr.'+k);}catch(e){}}};
+/* Zwischenspeicher im Gerät (IndexedDB) für Navigationsdaten. Fehlt IndexedDB, läuft die Seite ohne Speicher. */
+const kv=(()=>{let dbp=null;
+  const open=()=>dbp||(dbp=new Promise((res,rej)=>{try{const q=indexedDB.open('flugradar',1);q.onupgradeneeded=()=>q.result.createObjectStore('kv');q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error);}catch(e){rej(e);}}));
+  const run=(mode,fn)=>open().then(db=>new Promise((res,rej)=>{const tx=db.transaction('kv',mode),r=fn(tx.objectStore('kv'));tx.oncomplete=()=>res(r&&r.result);tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error);}));
+  return{get:k=>run('readonly',o=>o.get(k)).catch(()=>undefined),set:(k,v)=>run('readwrite',o=>o.put(v,k)).catch(()=>{})};})();
+const hhmm=t=>t==null?'–':new Date(t).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+const hhmmss=t=>new Date(t).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+const kmh=p=>p.gs==null?null:Math.round(p.gs*1.852);
+const ago=sec=>sec<20?'gerade eben':sec<90?'vor '+Math.round(sec)+' s':sec<5400?'vor '+Math.round(sec/60)+' min':'vor '+nf(sec/3600,1)+' h';
+const regionName=(()=>{try{const d=new Intl.DisplayNames(['de'],{type:'region'});return c=>{try{return d.of(c);}catch(e){return c;}};}catch(e){return c=>c;}})();
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
+function link(t,href){const a=el('a',null,t);a.href=href;a.target='_blank';a.rel='noopener noreferrer';return a;}
+const nowSec=()=>Date.now()/1000;
+async function getJSON(url,opt){
+  const ac=new AbortController(),t=setTimeout(()=>ac.abort(),(opt&&opt.timeout)||15000);
+  let r;
+  try{r=await fetch(url,{...(opt||{}),signal:ac.signal,headers:{accept:'application/json',...((opt&&opt.headers)||{})}});}
+  catch(e){const err=new Error(e.name==='AbortError'?'keine Antwort':'gesperrt oder nicht erreichbar');err.net=true;throw err;}
+  finally{clearTimeout(t);}
+  if(!r.ok){const err=new Error('HTTP '+r.status);err.status=r.status;throw err;}
+  return r.json();
+}
+
+/* Einstellungen aus config.json (Vermittler, openAIP-Schlüssel); ein Schlüssel aus dem Browser hat Vorrang */
+const CFG={proxy:'',openaipKey:''};
+const state={
+  cats:new Set(store.get('cats',CAT_ORDER)),gnd:store.get('gnd',false),
+  nav:store.get('nav',true),wx:store.get('wx',true),aip:store.get('aip',false),
+  place:store.get('place',null),favs:store.get('favs',[]),
+  onlyPlace:false,placeSet:new Set(),
+  query:'',queryRaw:'',found:[],
+  planes:new Map(),extra:new Map(),prov:null,err:null,note:null,lastOk:0,area:null,gated:false,
+  sel:null,tab:'map',sheet:null,navSel:null,wxSel:null
+};
+function favIndex(){const cs=new Set(),hex=new Set();for(const f of state.favs)(f.k==='cs'?cs:hex).add(f.id);return{cs,hex};}
+const isFav=(p,fi)=>(!!p.cs&&fi.cs.has(p.cs))||fi.hex.has(p.h);
+function planeBy(h){return state.planes.get(h)||state.extra.get(h)||null;}
+function allPlanes(){const m=new Map(state.extra);for(const[k,v]of state.planes)m.set(k,v);return m.values();}
+
+/* ---------- Karte ---------- */
+const start=state.place?[state.place.lat,state.place.lon]:[49.4794,8.4699];
+const v0=store.get('view',{c:start,z:9});
+const map=L.map('map',{zoomControl:false,attributionControl:true,doubleClickZoom:false,worldCopyJump:true}).setView(v0.c,v0.z);
+map.attributionControl.setPrefix(false);
+for(const[n,z]of[['aip',350],['navl',410],['nav',450],['wx',460],['plane',600]]){map.createPane(n).style.zIndex=z;}
+map.getPane('aip').style.pointerEvents='none';map.getPane('navl').style.pointerEvents='none';
+const dark=matchMedia('(prefers-color-scheme: dark)');
+let base=null;
+function setBase(){
+  if(base)map.removeLayer(base);
+  const k=dark.matches?'Dark':'Light',u='https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_'+k+'_Gray_';
+  const opt={maxNativeZoom:16,maxZoom:18,attribution:'Karte: © Esri, OpenStreetMap-Mitwirkende'};
+  base=L.layerGroup([L.tileLayer(u+'Base/MapServer/tile/{z}/{y}/{x}',opt),L.tileLayer(u+'Reference/MapServer/tile/{z}/{y}/{x}',{...opt,attribution:''})]).addTo(map);
+  base.eachLayer(l=>l.bringToBack());
+}
+setBase();dark.addEventListener('change',setBase);
+map.attributionControl.addAttribution('Flugdaten: adsb.lol / airplanes.live / OpenSky · Navigation: OurAirports · Wetter: NOAA AWC');
+const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const markers=new Map();
+let meMarker=null,placeMarker=null,route=null;
+
+/* ---------- Flugdaten: mehrere freie Quellen, die erste funktionierende gewinnt ---------- */
+const MIN_ZOOM=6;
+const PROV=[
+  {id:'proxy',name:'Eigener Vermittler',on:()=>!!CFG.proxy,base:()=>CFG.proxy.replace(/\/+$/,''),v2:true},
+  {id:'adsblol',name:'adsb.lol',base:()=>'https://api.adsb.lol',v2:true},
+  {id:'apl',name:'airplanes.live',base:()=>'https://api.airplanes.live',v2:true},
+  {id:'opensky',name:'OpenSky Network',os:true,min:30},
+  {id:'globe',name:'adsb.lol (weltweiter Datenstand)',globe:true,min:30}
+];
+const pfail={};   // id -> {at, wait, msg}
+const provOk=p=>(!p.on||p.on())&&!(pfail[p.id]&&Date.now()-pfail[p.id].at<pfail[p.id].wait);
+function failWait(e,p){if(e.status===429)return p.os?3600000:120000;if(e.status===401||e.status===403)return 1800000;return e.net?600000:180000;}
+/* Kreis, der den sichtbaren Ausschnitt abdeckt (höchstens 250 NM, mehr erlauben die Dienste nicht) */
+function viewCircle(){
+  const b=map.getBounds().pad(.1),c=map.getCenter();
+  const nm=Math.min(250,Math.max(5,Math.ceil(dist([c.lat,c.lng],[b.getNorth(),b.getEast()])/NM/5)*5));
+  return{c:[c.lat,c.lng],nm,b:[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()]};
+}
+async function fetchArea(p,ci){
+  const now=nowSec();
+  if(p.v2){
+    const j=await getJSON(p.base()+'/v2/point/'+ci.c[0].toFixed(3)+'/'+ci.c[1].toFixed(3)+'/'+ci.nm);
+    return(j.ac||j.aircraft||[]).map(a=>fromV2(a,now)).filter(Boolean);
+  }
+  if(p.os){
+    const[S,W,N,E]=ci.b;
+    const j=await getJSON('https://opensky-network.org/api/states/all?extended=1&lamin='+S.toFixed(3)+'&lomin='+W.toFixed(3)+'&lamax='+N.toFixed(3)+'&lomax='+E.toFixed(3));
+    return(j.states||[]).map(s=>fromOpenSky(s,now)).filter(Boolean);
+  }
+  const j=await getJSON('https://globe.adsb.lol/data/aircraft.json',{timeout:30000});
+  const[S,W,N,E]=ci.b,out=[];
+  for(const a of j.aircraft||[]){if(a.lat<S||a.lat>N||a.lon<W||a.lon>E)continue;const x=fromV2(a,now);if(x)out.push(x);}
+  return out;
+}
+/* Abfrage nach Kennung (hex, callsign, reg), Listen mit Komma */
+async function lookup(kind,ids){
+  const now=nowSec();
+  for(const p of PROV){
+    if(!provOk(p)||(!p.v2&&!(p.os&&kind==='hex')))continue;
+    try{
+      if(p.v2){const j=await getJSON(p.base()+'/v2/'+kind+'/'+ids.map(encodeURIComponent).join(','));return(j.ac||[]).map(a=>fromV2(a,now)).filter(Boolean);}
+      const j=await getJSON('https://opensky-network.org/api/states/all?extended=1&'+ids.map(h=>'icao24='+encodeURIComponent(h)).join('&'));
+      return(j.states||[]).map(s=>fromOpenSky(s,now)).filter(Boolean);
+    }catch(e){pfail[p.id]={at:Date.now(),wait:failWait(e,p),msg:e.message};}
+  }
+  throw new Error('keine Quelle erreichbar');
+}
+/* Flugspur auf dem Gerät: neuer Punkt nur bei spürbarer Bewegung */
+function addTrail(p,prev){
+  const tr=prev&&prev.tr?prev.tr.slice():[],n=tr.length;
+  if(n>=4&&dist([tr[n-4],tr[n-3]],[p.lat,p.lon])<200)return tr;
+  tr.push(p.lat,p.lon,p.ts,p.alt==null?null:p.alt);
+  return tr.length>1600?tr.slice(-1600):tr;
+}
+function merge(p,o){
+  if(o&&o.ts>p.ts+1)return o;   // neue Meldung ist älter als die vorhandene: behalten, was wir haben
+  if(o)for(const k of['r','t','desc','op','y','ec','cs'])if(!p[k]&&o[k])p[k]=o[k];
+  p.tr=addTrail(p,o);p.cat=catOf(p);
+  return p;
+}
+function applyArea(list){
+  const prev=state.planes,next=new Map(),now=nowSec();
+  for(const p of list)next.set(p.h,merge(p,prev.get(p.h)||state.extra.get(p.h)));
+  const fi=favIndex();
+  for(const[h,o]of prev)if(!next.has(h)&&((state.sel&&state.sel.h===h)||isFav(o,fi))&&now-o.ts<1800)next.set(h,o);
+  state.planes=next;
+}
+let loading=false,lastLoad=0;
+function interval(){
+  const p=PROV.find(x=>x.id===state.prov)||{};
+  const nm=state.area?state.area.nm:100;
+  return Math.max(p.min||0,nm<=60?5:nm<=150?10:20)*1000;
+}
+async function loadPlanes(force){
+  if(document.hidden||loading)return;
+  if(map.getZoom()<MIN_ZOOM){state.gated=true;render();return;}
+  state.gated=false;
+  const ci=viewCircle();
+  if(!force&&state.area&&Date.now()-lastLoad<interval()&&dist(ci.c,state.area.c)/NM+ci.nm<=state.area.nm*1.05)return;
+  loading=true;lastLoad=Date.now();
+  try{
+    for(const p of PROV){
+      if(!provOk(p))continue;
+      try{
+        const list=await fetchArea(p,ci);
+        applyArea(list);state.prov=p.id;state.err=null;state.lastOk=Date.now();state.area={...ci,at:Date.now()};
+        return;
+      }catch(e){pfail[p.id]={at:Date.now(),wait:failWait(e,p),msg:e.message};}
+    }
+    state.err='Keine Flugdatenquelle erreichbar. Neuer Versuch in einigen Minuten. Abhilfe: eigener Vermittler (siehe „Über Flugradar“).';
+  }finally{
+    loading=false;render();
+    if(state.sheet==='plane')renderPlaneSheet();else if(state.sheet==='fav')renderFavs();
+  }
+}
+/* Verfolgtes Flugzeug außerhalb des geladenen Ausschnitts: einzeln abfragen */
+let selLookAt=0;
+async function refreshSel(){
+  const sel=state.sel;if(!sel||document.hidden||Date.now()-selLookAt<10000)return;
+  const p=state.planes.get(sel.h);
+  if(p&&state.area&&dist([p.lat,p.lon],state.area.c)<state.area.nm*NM*.95)return;
+  selLookAt=Date.now();
+  try{const l=await lookup('hex',[sel.h]);if(l[0]){state.planes.set(sel.h,merge(l[0],planeBy(sel.h)));render();}}catch(e){}
+}
+function setStatus(text,err){const s=$('status');s.textContent=text;s.classList.toggle('err',!!err);}
+function note(text,err,ms){state.note={text,err:!!err,until:Date.now()+ms};setStatus(text,!!err);}
+function statusLine(shown,hidden){
+  if(state.err)return[state.err,true];
+  if(!state.prov)return['Lade Flugzeuge …',false];
+  const p=PROV.find(x=>x.id===state.prov);
+  let t='Live · '+p.name+' · '+hhmmss(state.lastOk)+' · '+shown+(shown===1?' Flugzeug':' Flugzeuge');
+  if(hidden)t+=' · '+hidden+' Namen ausgeblendet';
+  if(state.area&&state.area.nm>=250)t+=' · nur 460 km Umkreis';
+  if(p.os)t+=' · begrenzt, alle 30 s';
+  if(p.globe)t+=' · Notbetrieb, große Datenmenge';
+  if(state.query&&!shown)t='Kein Flugzeug „'+state.queryRaw+'“ im Ausschnitt. Enter sucht weltweit.';
+  return[t,false];
+}
+
+/* ---------- Darstellung ---------- */
+function passes(p,fav){
+  if(!state.cats.has(p.cat))return false;
+  if(p.gnd&&!state.gnd&&!fav)return false;
+  if(!matches(p,state.query))return false;
+  if(state.onlyPlace&&!state.placeSet.has(p.h))return false;
+  return true;
+}
+function planeIcon(p,pos,sel,fav,emg,label){
+  const cat=p.cat,[shape,size]=shapeOf(p,cat),rot=p.trk!=null?Math.round(p.trk/5)*5:0,old=pos.age>STALE;
+  const txt=label?(fav?'★ ':'')+nameOf(p):'',em=label&&!p.gnd&&p.alt!=null?altShort(p.alt)+vArrow(p.vr):'';
+  const key=[cat,shape,size,rot,old,sel,emg,p.gnd,txt,em].join('|');
+  return{key,make:()=>{
+    const span=el('span','pm c-'+cat+(old?' old':'')+(sel?' sel':'')+(emg?' emg':'')+(p.gnd?' gnd':''));
+    span.innerHTML='<svg viewBox="0 0 32 32" style="width:'+size+'px;height:'+size+'px;left:'+(-size/2)+'px;top:'+(-size/2)+'px;transform:rotate('+rot+'deg)"><path d="'+SHAPES[shape]+'"/></svg>';
+    if(txt){const b=el('b',null,txt);if(em)b.appendChild(el('em',null,em));span.appendChild(b);}
+    return L.divIcon({className:'',html:span.outerHTML,iconSize:[0,0]});
+  }};
+}
+const LABEL_ZOOM=8,MAX_MARKERS=800;
+let lastShown=0,lastHidden=0;
+function render(){
+  const now=nowSec(),fi=favIndex(),z=map.getZoom(),bounds=map.getBounds().pad(.1),sel=state.sel,gated=state.gated;
+  const list=[];
+  for(const p of state.planes.values()){
+    const isSel=!!sel&&sel.h===p.h,fav=isFav(p,fi);
+    if(!isSel&&(gated||!passes(p,fav)))continue;
+    if(!isSel&&!fav&&now-p.ts>DROP)continue;
+    const pos=planePos(p,now);
+    if(!isSel&&!bounds.contains(pos.ll))continue;
+    list.push({p,pos,isSel,fav,emg:isEmg(p),pt:map.latLngToContainerPoint(pos.ll)});
+  }
+  const c=map.getSize().divideBy(2);
+  const rank=x=>x.isSel?0:x.emg?1:x.fav?2:x.p.gnd?4:3;
+  list.sort((a,b)=>rank(a)-rank(b)||a.pt.distanceTo(c)-b.pt.distanceTo(c));
+  const shown=list.slice(0,MAX_MARKERS);
+  /* Namen: ab Zoom 8 für alle, sonst nur verfolgt, gemerkt oder im Notfall. Überlappende Namen entfallen. */
+  const want=shown.map(x=>x.isSel||x.fav||x.emg||z>=LABEL_ZOOM);
+  const items=shown.map((x,i)=>{const w=boxW(nameOf(x.p))+(x.p.alt!=null&&!x.p.gnd?46:0);return want[i]?{x:x.pt.x+14+w/2,y:x.pt.y,w,h:20}:null;});
+  const okIdx=declutter(items.filter(Boolean));
+  let k=0;const lab=items.map(it=>it?okIdx[k++]:false);
+  lastShown=shown.length;lastHidden=want.filter(Boolean).length-lab.filter(Boolean).length;
+  const seen=new Set();
+  shown.forEach((x,i)=>{
+    const{p,pos,isSel,fav,emg}=x;seen.add(p.h);
+    const ic=planeIcon(p,pos,isSel,fav,emg,lab[i]||isSel);
+    let m=markers.get(p.h);const zi=isSel?2000:emg?1500:fav?1000:0;
+    if(!m){
+      m=L.marker(pos.ll,{icon:ic.make(),keyboard:false,zIndexOffset:zi,pane:'plane'}).addTo(map);
+      m.on('click',()=>onMarker(p.h));m._k=ic.key;markers.set(p.h,m);
+    }else{
+      m.setLatLng(pos.ll);
+      if(m._k!==ic.key){m.setIcon(ic.make());m._k=ic.key;m.setZIndexOffset(zi);}
+    }
+  });
+  for(const[id,m]of markers)if(!seen.has(id)){map.removeLayer(m);markers.delete(id);}
+  if(state.note&&Date.now()<state.note.until)setStatus(state.note.text,state.note.err);
+  else if(gated)setStatus('Flugzeuge erscheinen ab Zoom '+MIN_ZOOM+'. Bitte näher heranzoomen.',false);
+  else{const st=statusLine(lastShown,lastHidden);setStatus(st[0],st[1]);}
+  if(sel&&sel.follow){
+    const m=markers.get(sel.h);
+    if(m){const a=map.latLngToContainerPoint(m.getLatLng());if(a.distanceTo(c)>3)map.panTo(m.getLatLng(),{animate:true,duration:.8});}
+  }
+  paintRoute();
+  if(state.sheet==='plane')renderPlaneStatus();
+  paintTrack();
+}
+
+/* ---------- Flugzeug verfolgen ---------- */
+function onMarker(h){
+  if(state.sel&&state.sel.h===h){if(state.sheet!=='plane')openSheet('plane');return;}
+  selectPlane(h,false);
+}
+function selectPlane(h,fly){
+  const p=planeBy(h);if(!p)return;
+  if(!state.planes.has(h))state.planes.set(h,p);
+  clearRoute();
+  state.sel={h,follow:true,showData:false,rt:null,info:null};
+  for(const mk of markers.values())mk._k='';
+  setTab('map',true);openSheet('plane');
+  const pos=planePos(p,nowSec());
+  if(fly||!map.getBounds().contains(pos.ll))map.setView(pos.ll,Math.max(map.getZoom(),9));
+  buildRoute();render();
+  loadRoute(state.sel);
+}
+function clearSel(){state.sel=null;clearRoute();for(const m of markers.values())m._k='';render();}
+function clearRoute(){if(route){map.removeLayer(route.group);route=null;}}
+/* Navi-Ansicht: Flugspur grau, Kurs der nächsten 5 Minuten kräftig, Ziel laut Routendatenbank als Großkreis */
+function buildRoute(){
+  const sel=state.sel,p=sel&&planeBy(sel.h);if(!p)return;
+  const c=cssVar('--'+p.cat)||'#888',fill=cssVar('--surface')||'#fff',grey=cssVar('--muted')||'#888';
+  const o={pane:'navl',interactive:false};
+  const orig=L.polyline([],{...o,color:grey,weight:2,opacity:.5,dashArray:'2 8'});
+  const trail=L.polyline([],{...o,color:grey,weight:4,opacity:.6,lineCap:'round'});
+  const dest=L.polyline([],{...o,color:c,weight:2.5,opacity:.85,dashArray:'8 8'});
+  const casing=L.polyline([],{...o,color:fill,weight:10,opacity:.9,lineCap:'round'});
+  const ahead=L.polyline([],{...o,color:c,weight:6,lineCap:'round'});
+  const group=L.layerGroup([orig,trail,dest,casing,ahead]).addTo(map);
+  route={group,orig,trail,dest,casing,ahead,cat:p.cat,labels:new Map()};
+}
+function setLabel(key,ll,txt,dest){
+  let tt=route.labels.get(key);
+  if(!ll){if(tt){route.group.removeLayer(tt);route.labels.delete(key);}return;}
+  if(!tt){
+    tt=L.tooltip({permanent:true,direction:'auto',offset:[10,0],className:'rlab'+(dest?' dest':'')+' c-'+route.cat,interactive:false}).setLatLng(ll).setContent(txt);
+    route.group.addLayer(tt);route.labels.set(key,tt);tt._txt=txt;
+  }else{tt.setLatLng(ll);if(tt._txt!==txt){tt.setContent(txt);tt._txt=txt;}}
+}
+function apLabel(a){return a.city||a.name||a.icao;}
+function apCode(a){return a.iata||a.icao||'';}
+/* Ankunft grob schätzen: Großkreis zum Ziel mit aktueller Geschwindigkeit, dazu etwas für Anflug und Landung */
+function etaOf(p,pos,d){
+  if(p.gnd||!p.gs||p.gs<60)return null;
+  const rem=dist(pos,[d.lat,d.lon]),v=p.gs*KN;
+  return Date.now()+(rem*1.05/v+(rem>80000?480:120))*1000;
+}
+function paintRoute(){
+  const sel=state.sel;if(!route||!sel)return;
+  const p=planeBy(sel.h);if(!p)return;
+  const now=nowSec(),pos=planePos(p,now),pts=[],tr=p.tr||[];
+  for(let i=0;i+3<tr.length;i+=4)if(tr[i+2]<=p.ts+1)pts.push([tr[i],tr[i+1]]);
+  pts.push([p.lat,p.lon],pos.ll);
+  route.trail.setLatLngs(pts.length>2?pts:[]);
+  let ahead=[];
+  if(!p.gnd&&p.trk!=null&&p.gs>30)ahead=[pos.ll,project(pos.ll,p.trk,p.gs*KN*AHEAD)];
+  route.ahead.setLatLngs(ahead);route.casing.setLatLngs(ahead);
+  setLabel('ahead',ahead.length?ahead[1]:null,'in 5 min');
+  const rt=sel.rt&&sel.rt.ok?sel.rt:null;
+  if(rt&&rt.d&&!p.gnd&&dist(pos.ll,[rt.d.lat,rt.d.lon])>3000){
+    const dd=[rt.d.lat,rt.d.lon],line=gcPoints(pos.ll,dd);
+    route.dest.setStyle({dashArray:rt.plausible===false?'3 9':'8 8',opacity:rt.plausible===false?.5:.85});
+    route.dest.setLatLngs(line);
+    const rem=dist(pos.ll,dd),eta=etaOf(p,pos.ll,rt.d);
+    setLabel('dest',line[line.length-1],'Ziel '+apLabel(rt.d)+(apCode(rt.d)?' ('+apCode(rt.d)+')':'')+' · '+fmtKm(rem)+(eta?' · ca. '+hhmm(eta):''),true);
+  }else{route.dest.setLatLngs([]);setLabel('dest',null);}
+  if(rt&&rt.o&&pts.length&&dist(pts[0],[rt.o.lat,rt.o.lon])>3000){
+    route.orig.setLatLngs(gcPoints([rt.o.lat,rt.o.lon],pts[0],24));
+    setLabel('orig',[rt.o.lat,rt.o.lon],'Start '+apLabel(rt.o));
+  }else{route.orig.setLatLngs([]);setLabel('orig',null);}
+}
+function showRoute(){
+  const sel=state.sel,p=sel&&planeBy(sel.h);if(!p)return;
+  const pos=planePos(p,nowSec()),pts=[pos.ll],tr=p.tr||[];
+  for(let i=0;i+3<tr.length;i+=4)pts.push([tr[i],tr[i+1]]);
+  const rt=sel.rt&&sel.rt.ok?sel.rt:null;
+  if(rt&&rt.d)pts.push(...gcPoints(pos.ll,[rt.d.lat,rt.d.lon],16));
+  if(rt&&rt.o)pts.push([rt.o.lat,rt.o.lon]);
+  if(!rt&&p.trk!=null&&p.gs)pts.push(project(pos.ll,p.trk,p.gs*KN*AHEAD));
+  if(pts.length<2)return;
+  sel.follow=false;const fb=$('followBtn');if(fb)fb.setAttribute('aria-pressed','false');
+  const sh=$('sheet'),pad=sh&&!sh.hidden?Math.min(sh.offsetHeight,innerHeight*.6):0;
+  map.fitBounds(L.latLngBounds(pts),{paddingTopLeft:[50,150],paddingBottomRight:[50,40+pad],maxZoom:12});
+}
+
+/* ---------- Routen (adsb.lol routeset, Rückfall adsbdb) und Flugzeugdaten (adsbdb) ---------- */
+const routes=new Map();   // Rufzeichen -> {at, ok, o, d, plausible, airline}
+const ROUTE_TTL=1800000,ROUTE_MISS=600000;
+const apFrom=a=>a?{icao:a.icao||a.icao_code||'',iata:a.iata||a.iata_code||'',name:a.name||'',city:a.location||a.municipality||'',lat:+(a.lat??a.latitude),lon:+(a.lon??a.longitude),cc:a.countryiso2||a.country_iso_name||''}:null;
+function routeFresh(cs){const r=routes.get(cs);return r&&Date.now()-r.at<(r.ok?ROUTE_TTL:ROUTE_MISS)?r:null;}
+async function routeSet(planes){   // [{p,pos}]
+  const want=planes.filter(x=>x.p.cs&&airlineCs(x.p.cs)&&!routeFresh(x.p.cs)).slice(0,100);
+  if(!want.length)return 0;
+  for(const x of want)routes.set(x.p.cs,{at:Date.now()-ROUTE_MISS+60000,ok:false,busy:true});
+  try{
+    const j=await getJSON('https://api.adsb.lol/api/0/routeset',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({planes:want.map(x=>({callsign:x.p.cs,lat:+x.pos[0].toFixed(3),lng:+x.pos[1].toFixed(3)}))}),timeout:20000});
+    const by=new Map(want.map(x=>[x.p.cs,x.pos]));
+    for(const r of Array.isArray(j)?j:[]){
+      const aps=(r._airports||[]).map(apFrom).filter(a=>a&&isFinite(a.lat));
+      const leg=pickLeg(aps,by.get(r.callsign));
+      routes.set(r.callsign,leg?{at:Date.now(),ok:true,o:leg.o,d:leg.d,plausible:r.plausible==null?null:!!r.plausible,src:'adsb.lol'}:{at:Date.now(),ok:false});
+    }
+  }catch(e){throw e;}   // Platzhalter bleiben 60 s, damit ein Ausfall nicht zu Dauerabfragen führt
+  return want.length;
+}
+async function routeOne(cs,pos){
+  if(routeFresh(cs))return routes.get(cs);
+  if(pos)try{await routeSet([{p:{cs},pos}]);}catch(e){}
+  let r=routes.get(cs);
+  if(r&&r.ok)return r;
+  try{   // Rückfall: adsbdb
+    const j=await getJSON('https://api.adsbdb.com/v0/callsign/'+encodeURIComponent(cs));
+    const fr=j&&j.response&&j.response.flightroute;
+    if(fr&&fr.origin&&fr.destination){r={at:Date.now(),ok:true,o:apFrom(fr.origin),d:apFrom(fr.destination),plausible:null,airline:fr.airline&&fr.airline.name,src:'adsbdb'};routes.set(cs,r);}
+    else{r={at:Date.now(),ok:false};routes.set(cs,r);}
+  }catch(e){}
+  return routes.get(cs)||null;
+}
+async function loadRoute(sel){
+  const p=planeBy(sel.h);if(!p||!p.cs)return;
+  const r=await routeOne(p.cs,[p.lat,p.lon]);
+  if(state.sel!==sel)return;
+  sel.rt=r;paintRoute();renderPlaneSheet();
+}
+const infoCache=new Map();
+async function loadInfo(sel){
+  if(infoCache.has(sel.h)){sel.info=infoCache.get(sel.h);return;}
+  try{
+    const j=await getJSON('https://api.adsbdb.com/v0/aircraft/'+encodeURIComponent(sel.h));
+    const a=j&&j.response&&j.response.aircraft;
+    sel.info=a?{type:a.type,icao:a.icao_type,maker:a.manufacturer,reg:a.registration,owner:a.registered_owner,ownerCc:a.registered_owner_country_iso_name}:null;
+    infoCache.set(sel.h,sel.info);
+    if(state.sel===sel&&sel.showData)renderPlaneSheet();
+  }catch(e){}
+}
+
+/* ---------- Blatt: Flugzeug ---------- */
+function apBox(a,right){
+  const d=el('div','ap'+(right?' r':''));d.append(el('b',null,apCode(a)||'?'),el('small',null,apLabel(a)));return d;
+}
+function renderPlaneSheet(){
+  const sel=state.sel;if(!sel||state.sheet!=='plane')return;
+  const p=planeBy(sel.h);
+  const b=$('shBadge');b.hidden=false;b.className='badge c-'+(p?p.cat:'sonst');b.textContent=p?nameOf(p):sel.h.toUpperCase();
+  const body=$('shBody'),keep=body.scrollTop;body.replaceChildren();
+  if(!p){$('shTitle').textContent='nicht mehr im Datenstand';body.appendChild(el('p','hint','Von diesem Flugzeug kam länger keine Position. Es ist gelandet, außerhalb der Empfangsreichweite oder sendet nicht mehr.'));return;}
+  const rt=sel.rt&&sel.rt.ok?sel.rt:null,fno=flightNo(p.cs);
+  $('shTitle').replaceChildren(rt?el('span',null,apCode(rt.o)+' → '):'',rt?apCode(rt.d):(p.desc||p.t||p.r||'Flugzeug'));
+  const row=el('div','nowrow'),kp=el('div','kpis');
+  kp.append(Object.assign(el('div','speed num'),{id:'pAlt'}),Object.assign(el('div','speed num'),{id:'pSpd'}));
+  row.append(Object.assign(el('div','now'),{id:'pNow'}),kp);body.appendChild(row);
+  if(rt){
+    const r=el('div','route');r.append(apBox(rt.o),el('span','arrow','→'),apBox(rt.d,true));body.appendChild(r);
+    const rs=el('p','hint num');rs.id='pRoute';body.appendChild(rs);
+  }else if(sel.rt&&!sel.rt.ok&&p.cs)body.appendChild(el('p','hint','Route zu '+p.cs+' ist in den freien Datenbanken nicht bekannt.'));
+  const acts=el('div','acts');
+  const fol=el('button','btn','Karte folgt');fol.type='button';fol.id='followBtn';fol.setAttribute('aria-pressed',String(sel.follow));
+  fol.onclick=()=>{sel.follow=!sel.follow;fol.setAttribute('aria-pressed',String(sel.follow));render();};
+  const ov=el('button','btn','Strecke zeigen');ov.type='button';ov.onclick=showRoute;
+  const tog=el('button','btn',sel.showData?'Daten ausblenden':'Flugzeugdaten');tog.type='button';tog.id='dataBtn';tog.setAttribute('aria-expanded',String(sel.showData));
+  acts.append(fol,ov,tog);body.appendChild(acts);
+  const facts=planeFacts(p,sel,fno);facts.hidden=!sel.showData;body.appendChild(facts);
+  tog.onclick=()=>{sel.showData=!sel.showData;if(sel.showData&&!sel.info)loadInfo(sel);renderPlaneSheet();};
+  /* Merken: ein Flug (Rufzeichen, z. B. täglicher Pendlerflug) oder ein bestimmtes Flugzeug (Kennzeichen) */
+  const fi=favIndex(),fb=el('div','favbox');
+  fb.appendChild(el('p',null,'Für „Meine Flüge“ merken: den Flug (gleiche Flugnummer an jedem Tag) oder dieses Flugzeug (z. B. Rettungshubschrauber, Vereinsflugzeug).'));
+  if(p.cs){const on=fi.cs.has(p.cs),bt=el('button',on?'btn':'btn pri',(on?'Flug nicht mehr merken':'Flug '+(fno||p.cs)+' merken'));bt.type='button';
+    bt.onclick=()=>{toggleFav({k:'cs',id:p.cs,n:fno||p.cs,cat:p.cat});renderPlaneSheet();render();};fb.appendChild(bt);}
+  {const on=fi.hex.has(p.h),bt=el('button',on?'btn':'btn pri',(on?'Flugzeug nicht mehr merken':'Flugzeug '+(p.r||p.h.toUpperCase())+' merken'));bt.type='button';
+    bt.onclick=()=>{toggleFav({k:'hex',id:p.h,n:p.r||p.h.toUpperCase(),cat:p.cat,t:p.t});renderPlaneSheet();render();};fb.appendChild(bt);}
+  body.appendChild(fb);
+  renderPlaneStatus();
+  body.scrollTop=keep;
+}
+function planeFacts(p,sel,fno){
+  const box=el('div');box.id='facts';
+  const dl=el('dl','facts num'),add=(k,v)=>{if(v==null||v==='')return;dl.append(el('dt',null,k),el('dd',null,v));};
+  const inf=sel.info||{};
+  add('Flug',p.cs?(fno?fno+' · ':'')+p.cs:null);
+  add('Fluggesellschaft',airlineOf(p.cs)||(sel.rt&&sel.rt.airline)||null);
+  add('Kennzeichen',p.r||inf.reg);
+  add('Typ',[inf.maker,inf.type].filter(Boolean).join(' ')||p.desc||null);
+  add('Typcode',p.t||inf.icao);
+  add('Halter',p.op||inf.owner);
+  add('Baujahr',p.y?String(p.y):null);
+  add('Kategorie',p.ec&&EC[p.ec]?p.ec+' · '+EC[p.ec]:null);
+  add('Squawk',p.sq?p.sq+(SQUAWK[p.sq]?' · '+SQUAWK[p.sq]:''):null);
+  if(p.em)add('Notfallmeldung',EMG[p.em]||p.em);
+  add('Höhe (Druck)',p.alt!=null&&!p.gnd?nf(p.alt,0)+' ft · '+nf(Math.round(p.alt*FT),0)+' m':null);
+  add('Höhe (GPS)',p.galt!=null?nf(p.galt,0)+' ft':null);
+  add('Gewählte Höhe',p.mcp!=null?nf(p.mcp,0)+' ft':null);
+  add('Steig-/Sinkrate',p.vr!=null&&!p.gnd?(p.vr>0?'+':'')+nf(p.vr,0)+' ft/min':null);
+  add('Kurs über Grund',p.trk!=null?nf(p.trk,0)+'° ('+compass(p.trk)+')':null);
+  add('Fahrt durch die Luft',[p.ias!=null?'IAS '+p.ias+' kt':'',p.tas!=null?'TAS '+p.tas+' kt':'',p.mach!=null?'Mach '+nf(p.mach,2):''].filter(Boolean).join(' · ')||null);
+  add('Wind in Flughöhe',p.ws!=null&&p.wd!=null?nf(p.wd,0)+'° mit '+p.ws+' kt':null);
+  add('Außentemperatur',p.oat!=null?p.oat+' °C':null);
+  add('QNH im Cockpit',p.qnh!=null?nf(p.qnh,0)+' hPa':null);
+  add('Transpondercode (hex)',p.h.toUpperCase()+(p.tis?' (nicht eindeutig)':''));
+  add('Ortung',SRC[p.src]||p.src||null);
+  if(p.db&8)add('Hinweis','Halter hat um eingeschränkte Anzeige gebeten (LADD)');
+  if(sel.rt&&sel.rt.ok)add('Route',apLabel(sel.rt.o)+' → '+apLabel(sel.rt.d)+(sel.rt.plausible===false?' (passt nicht zur Position, Datenbank vermutlich veraltet)':'')+' · Quelle '+sel.rt.src);
+  const n=p.tr?p.tr.length/4:0;add('Flugspur',n>1?n+' Punkte seit '+hhmm(p.tr[2]*1000)+' (auf diesem Gerät gesammelt)':null);
+  box.appendChild(dl);
+  const links=el('div','links');
+  const L1=[['adsb.lol Verlauf','https://globe.adsb.lol/?icao='+p.h]];
+  if(p.r)L1.push(['Fotos (Planespotters)','https://www.planespotters.net/search?q='+encodeURIComponent(p.r)],['JetPhotos','https://www.jetphotos.com/registration/'+encodeURIComponent(p.r)]);
+  if(p.cs)L1.push(['FlightAware','https://www.flightaware.com/live/flight/'+encodeURIComponent(p.cs)]);
+  for(const[t,u]of L1)links.appendChild(link(t+' ↗',u));
+  box.appendChild(links);
+  return box;
+}
+function renderPlaneStatus(){
+  const sel=state.sel,box=$('pNow');if(!sel||!box)return;
+  const p=planeBy(sel.h);if(!p)return;
+  const now=nowSec(),pos=planePos(p,now),emg=isEmg(p);
+  box.replaceChildren();
+  if(emg)box.appendChild(el('span','late',emgText(p)+(p.sq?' (Squawk '+p.sq+')':'')+' · '));
+  box.append(phase(p)+(p.trk!=null&&!p.gnd?' · Richtung '+compass(p.trk):''));
+  const sm=el('small','num');
+  sm.append('Position '+hhmmss(p.ts*1000)+', '+ago(pos.age));
+  if(pos.est)sm.append(' · fortgeschrieben');
+  if(pos.age>STALE)sm.appendChild(el('span','late',' · veraltet'));
+  if(state.place){const d=dist(pos.ll,[state.place.lat,state.place.lon]);sm.append(' · '+fmtKm(d)+' von '+state.place.name);}
+  box.appendChild(sm);
+  const a=$('pAlt');a.replaceChildren();
+  if(p.gnd)a.append(el('small',null,'am Boden'));
+  else{a.append(p.alt!=null?fmtAlt(p.alt):'–');a.appendChild(el('small',null,(p.alt!=null?nf(Math.round(p.alt*FT/10)*10,0)+' m':'Höhe')+(p.vr!=null&&Math.abs(p.vr)>=300?' · '+(p.vr>0?'↑ ':'↓ ')+nf(Math.abs(Math.round(p.vr/100)*100),0)+' ft/min':'')));}
+  const s=$('pSpd');s.replaceChildren();
+  if(p.gs!=null){s.append(String(kmh(p)));s.appendChild(el('small',null,'km/h · '+Math.round(p.gs)+' kt'));}
+  const rs=$('pRoute'),rt=sel.rt&&sel.rt.ok?sel.rt:null;
+  if(rs&&rt){
+    const rem=dist(pos.ll,[rt.d.lat,rt.d.lon]),done=dist([rt.o.lat,rt.o.lon],pos.ll),eta=etaOf(p,pos.ll,rt.d);
+    let t=(p.gnd&&done<5000?'Am Boden in '+apLabel(rt.o):p.gnd&&rem<5000?'Gelandet in '+apLabel(rt.d):'Noch '+fmtKm(rem)+(eta?' · Ankunft ca. '+hhmm(eta):''));
+    if(rt.plausible===false)t+=' · Route passt nicht zur Position, Datenbank vermutlich veraltet';
+    else t+=' · Route laut '+(rt.src==='adsbdb'?'adsbdb':'Routendatenbank (adsb.lol)');
+    rs.textContent=t;
+  }
+}
+/* Kapsel oben: zeigt das verfolgte Flugzeug, solange das Blatt zu ist */
+function paintTrack(){
+  const sel=state.sel,box=$('track'),show=!!sel&&state.sheet!=='plane';
+  box.hidden=!show;
+  const st=$('status');st.hidden=show&&!st.classList.contains('err');
+  if(!show)return;
+  const p=planeBy(sel.h);
+  let txt=p?nameOf(p):sel.h.toUpperCase();
+  if(p)txt+=p.gnd?' · am Boden':' · '+fmtAlt(p.alt)+' · '+kmh(p)+' km/h';
+  const b=$('trackOpen');if(b.textContent!==txt)b.textContent=txt;
+  b.className='tbtn c-'+(p?p.cat:'sonst');
+}
+$('trackOpen').onclick=()=>openSheet('plane');
+$('trackStop').onclick=()=>{clearSel();paintTrack();};
+
+/* ---------- Meine Flüge ---------- */
+function toggleFav(f){
+  const i=state.favs.findIndex(x=>x.k===f.k&&x.id===f.id);
+  if(i>=0)state.favs.splice(i,1);else state.favs.push(f);
+  store.set('favs',state.favs);
+}
+let favLookAt=0,favBusy=false;
+const favSeen=new Map();   // id -> Zeitpunkt der letzten erfolglosen Abfrage
+async function lookupFavs(){
+  if(favBusy||document.hidden||Date.now()-favLookAt<60000)return;
+  const fi=favIndex(),have=new Set();
+  for(const p of state.planes.values()){if(p.cs&&fi.cs.has(p.cs))have.add('cs:'+p.cs);if(fi.hex.has(p.h))have.add('hex:'+p.h);}
+  const cs=state.favs.filter(f=>f.k==='cs'&&!have.has('cs:'+f.id)).map(f=>f.id).slice(0,20);
+  const hex=state.favs.filter(f=>f.k==='hex'&&!have.has('hex:'+f.id)).map(f=>f.id).slice(0,20);
+  if(!cs.length&&!hex.length)return;
+  favBusy=true;favLookAt=Date.now();
+  try{
+    const got=[];
+    if(hex.length)got.push(...await lookup('hex',hex));
+    if(cs.length)got.push(...await lookup('callsign',cs));
+    for(const p of got){state.planes.set(p.h,merge(p,planeBy(p.h)));}
+    for(const id of cs.concat(hex))if(!got.some(p=>p.cs===id||p.h===id))favSeen.set(id,Date.now());
+  }catch(e){}finally{favBusy=false;}
+  for(const f of state.favs)if(f.k==='cs'&&!routeFresh(f.id))routeOne(f.id,null).then(()=>{if(state.sheet==='fav')renderFavs();});
+  if(state.sheet==='fav')renderFavs();render();
+}
+function renderFavs(){
+  $('shTitle').textContent='Meine Flüge';
+  const body=$('shBody'),keep=body.scrollTop;body.replaceChildren();
+  if(!state.favs.length){
+    body.appendChild(el('p','hint','Noch nichts gemerkt. Tippe auf der Karte auf ein Flugzeug und wähle „Flug merken“ (z. B. dein Flug nächste Woche oder der tägliche Pendlerflug, auf den du jemanden abholst) oder „Flugzeug merken“ (z. B. der Rettungshubschrauber in deiner Nähe oder das Vereinsflugzeug). Hier siehst du dann, wo sie gerade sind.'));
+    body.appendChild(newsLink());return;
+  }
+  const now=nowSec(),ps=[...state.planes.values()];
+  state.favs.forEach((f,i)=>{
+    const p=f.k==='cs'?ps.find(x=>x.cs===f.id&&now-x.ts<DROP):ps.find(x=>x.h===f.id&&now-x.ts<DROP);
+    if(p){f.cat=p.cat;if(f.k==='hex'&&p.r)f.n=p.r;}
+    const box=el('div','fav'),open=el('button','open');open.type='button';
+    const pp=el('p'),rt=f.k==='cs'?routeFresh(f.id):null;
+    const rtx=rt&&rt.ok?apLabel(rt.o)+' → '+apLabel(rt.d):'';
+    if(p){
+      const pos=planePos(p,now);
+      pp.append(p.gnd?'am Boden':(rtx||phase(p))+' · '+fmtAlt(p.alt));
+      let info=(p.gnd?'':kmh(p)+' km/h · ')+'Position '+ago(pos.age);
+      if(f.k==='hex'&&p.cs)info=p.cs+' · '+info;
+      if(rt&&rt.ok&&!p.gnd){const eta=etaOf(p,pos.ll,rt.d);if(eta)info+=' · Ankunft ca. '+hhmm(eta);}
+      else if(state.place){const d=dist(pos.ll,[state.place.lat,state.place.lon]);info+=' · '+fmtKm(d)+' von '+state.place.name;}
+      pp.appendChild(el('small',null,info));
+      open.onclick=()=>selectPlane(p.h,true);
+    }else{
+      pp.append(rtx||(f.k==='cs'?'Flug '+f.id:'Flugzeug '+f.n));
+      pp.appendChild(el('small',null,favSeen.has(f.id)||Date.now()-favLookAt<60000?'gerade nicht in der Luft oder nicht empfangen':'wird gesucht …'));
+      open.disabled=true;
+    }
+    open.append(el('span','badge c-'+(f.cat||'sonst'),(f.k==='hex'?'':'✈ ')+f.n),pp);
+    const rm=el('button','x','Entfernen');rm.type='button';
+    rm.onclick=()=>{state.favs.splice(i,1);store.set('favs',state.favs);renderFavs();render();};
+    box.append(open,rm);body.appendChild(box);
+  });
+  store.set('favs',state.favs);
+  body.appendChild(el('p','hint','Flüge (✈) werden über ihr Rufzeichen gefunden, Flugzeuge über ihren Transpondercode, weltweit, solange ein Empfänger sie hört. Die Abfrage läuft jede Minute, solange diese Liste offen ist.'));
+  body.appendChild(newsLink());
+  body.scrollTop=keep;
+  lookupFavs();
+}
+
+/* ---------- Mein Ort: über mir, kommt vorbei, Flughafen ---------- */
+function paintPlace(){
+  $('placeName').textContent=state.place?state.place.name:'wählen';
+  if(placeMarker){map.removeLayer(placeMarker);placeMarker=null;}
+  if(state.place)placeMarker=L.marker([state.place.lat,state.place.lon],{icon:L.divIcon({className:'',html:'<span class="pin"></span>',iconSize:[0,0]}),interactive:false,zIndexOffset:-100,pane:'wx'}).addTo(map);
+}
+function setPlace(p){
+  state.place=p;if(p)store.set('place',p);else store.del('place');
+  state.onlyPlace=false;state.placeSet=new Set();state.extra=new Map();paintPlace();render();
+}
+/* Ist Mein Ort außerhalb des geladenen Kreises, lädt die Seite den Umkreis zusätzlich (höchstens alle 15 s) */
+let extraAt=0,extraBusy=false;
+async function loadExtra(){
+  const pl=state.place;if(!pl||state.sheet!=='pass'||extraBusy||document.hidden||Date.now()-extraAt<15000)return;
+  const nm=pl.icao?60:30;
+  if(state.area&&dist([pl.lat,pl.lon],state.area.c)/NM+nm<=state.area.nm){if(state.extra.size)state.extra=new Map();return;}
+  extraBusy=true;extraAt=Date.now();
+  try{
+    const ci={c:[pl.lat,pl.lon],nm,b:[pl.lat-nm/60,pl.lon-nm/60/Math.cos(pl.lat*RAD),pl.lat+nm/60,pl.lon+nm/60/Math.cos(pl.lat*RAD)]};
+    for(const p of PROV){
+      if(!provOk(p))continue;
+      try{const list=await fetchArea(p,ci),m=new Map();for(const x of list)m.set(x.h,merge(x,state.extra.get(x.h)));state.extra=m;break;}
+      catch(e){pfail[p.id]={at:Date.now(),wait:failWait(e,p),msg:e.message};}
+    }
+  }finally{extraBusy=false;paintPass(true);}
+}
+function computePass(){
+  const now=nowSec(),pl=[state.place.lat,state.place.lon],elev=state.place.elev||0,icao=state.place.icao||'';
+  const near=[],come=[],arr=[],dep=[],want=[];
+  for(const p of allPlanes()){
+    if(!state.cats.has(p.cat)||!matches(p,state.query)||now-p.ts>DROP)continue;
+    const pos=planePos(p,now),d=dist(pos.ll,pl);
+    if(d>300000)continue;
+    if(icao){
+      const r=p.cs?routeFresh(p.cs):null,rt=r&&r.ok?r:null;
+      if(!r&&airlineCs(p.cs)&&d<200000)want.push({p,pos:pos.ll});
+      const toHere=!!rt&&rt.d&&rt.d.icao===icao,fromHere=!!rt&&rt.o&&rt.o.icao===icao;
+      if(p.gnd){if(d<5000)dep.push({p,pos,d,kind:'gnd',rt});continue;}
+      const descending=p.vr!=null&&p.vr<-200&&p.alt!=null&&p.alt<12000&&p.trk!=null&&angDiff(p.trk,bearing(pos.ll,pl))<35;
+      if((toHere&&!fromHere)||(!rt&&d<50000&&descending)){
+        const v=(p.gs||0)*KN;arr.push({p,pos,d,rt,eta:v>30?now+d*1.05/v+(d>60000?420:60):null});continue;}
+      if(fromHere&&d<250000){dep.push({p,pos,d,kind:'air',rt});continue;}
+    }
+    if(p.gnd)continue;
+    if(d<10000){near.push({p,pos,d,el:elevAngle(p.alt,elev,d),brg:bearing(pl,pos.ll)});continue;}
+    if(p.trk!=null&&p.gs>40&&d<150000){const a=approach(pl,pos.ll,p.trk,p.gs,1200);if(a.d<5000&&a.t>10)come.push({p,pos,d,a,eta:now+a.t});}
+  }
+  if(want.length)routeSet(want).then(n=>{if(n)paintPass(true);}).catch(()=>{});
+  near.sort((a,b)=>a.d-b.d);come.sort((a,b)=>a.eta-b.eta);
+  arr.sort((a,b)=>(a.eta||Infinity)-(b.eta||Infinity)||a.d-b.d);dep.sort((a,b)=>(a.kind==='gnd'?0:1)-(b.kind==='gnd'?0:1)||a.d-b.d);
+  const out={near:near.slice(0,20),come:come.slice(0,20),arr:arr.slice(0,20),dep:dep.slice(0,20)};
+  state.placeSet=new Set([...out.near,...out.come,...out.arr,...out.dep].map(x=>x.p.h));
+  return out;
+}
+function passRow(x,kind,now){
+  const{p}=x,li=el('li'),b=el('button','row');b.type='button';
+  const t=el('span','t'),dd=el('span','d');
+  const rt=x.rt||(p.cs?routeFresh(p.cs):null),rtx=rt&&rt.ok?apLabel(rt.o)+' → '+apLabel(rt.d):'';
+  const what=rtx||p.desc||p.t||(p.r?p.r:'')||CATS[p.cat];
+  let info='',g=fmtKm(x.d);
+  if(kind==='near'){
+    t.textContent=x.el!=null?Math.round(x.el)+'°':'–';t.appendChild(el('small',null,compass(x.brg)));
+    info=fmtAlt(p.alt)+vArrow(p.vr)+' · '+kmh(p)+' km/h'+(p.trk!=null?' · fliegt nach '+compass(p.trk):'');
+  }else if(kind==='come'){
+    t.textContent=hhmm(x.eta*1000);t.appendChild(el('small',null,'in '+Math.max(1,Math.round((x.eta-now)/60))+' min'));
+    info='Abstand '+fmtKm(x.a.d)+' · '+fmtAlt(p.alt)+vArrow(p.vr);
+  }else if(kind==='arr'){
+    if(x.eta){t.textContent=hhmm(x.eta*1000);t.appendChild(el('small',null,'ca.'));}else t.textContent='–';
+    info=fmtAlt(p.alt)+vArrow(p.vr)+' · '+kmh(p)+' km/h'+(rt&&rt.ok?'':' · im Sinkflug hierher');
+  }else{
+    t.textContent=x.kind==='gnd'?(p.gs>=5?'rollt':'steht'):'weg';
+    if(x.kind!=='gnd')t.appendChild(el('small',null,fmtAlt(p.alt)));
+    info=x.kind==='gnd'?(p.t||'')+(rtx?'':' · am Boden'):kmh(p)+' km/h'+(p.trk!=null?' · Richtung '+compass(p.trk):'');
+  }
+  dd.textContent=what;dd.appendChild(el('small',null,info+(x.pos.age>STALE?' · Position '+ago(x.pos.age):'')));
+  b.append(t,el('span','badge c-'+p.cat,(isEmg(p)?'⚠ ':'')+nameOf(p)),dd,el('span','g',g));
+  b.onclick=()=>selectPlane(p.h,true);
+  li.appendChild(b);return li;
+}
+let lastPass=0;
+function paintPass(force){
+  if(state.sheet!=='pass'||!state.place)return;
+  if(!force&&Date.now()-lastPass<5000)return;lastPass=Date.now();
+  const box=$('passLists');if(!box)return;
+  const r=computePass(),now=nowSec(),icao=state.place.icao;
+  box.replaceChildren();
+  const sec=(title,list,kind,empty)=>{
+    box.appendChild(el('p','sub',title));
+    const ul=el('ul','rows num');for(const x of list)ul.appendChild(passRow(x,kind,now));
+    if(!list.length)ul.appendChild(el('li','hint',empty));
+    box.appendChild(ul);
+  };
+  if(icao){
+    sec('Landet bald',r.arr,'arr','Gerade kein Flugzeug im Anflug erkennbar.');
+    sec('Am Boden · gestartet',r.dep,'dep','Kein Flugzeug am Boden oder gerade gestartet.');
+  }
+  sec('Jetzt in der Nähe (10 km)',r.near,'near',state.planes.size||state.extra.size?'Gerade kein Flugzeug in 10 km Umkreis.':'Noch keine Flugdaten.');
+  sec('Kommt vorbei (20 min)',r.come,'come','Laut Kurs kommt in den nächsten 20 Minuten kein weiteres Flugzeug näher als 5 km vorbei.');
+  if(state.onlyPlace)render();
+}
+function renderPass(){
+  if(!state.place){openSheet('place');return;}
+  const pl=state.place;
+  $('shTitle').replaceChildren(el('span',null,pl.icao?'Flughafen ':'Über '),pl.name);
+  const body=$('shBody');body.replaceChildren();
+  const wx=el('div','wx');wx.id='placeWx';wx.hidden=true;body.appendChild(wx);
+  const lab=el('label','check'),cb=el('input');cb.type='checkbox';cb.checked=state.onlyPlace;
+  cb.onchange=()=>{state.onlyPlace=cb.checked;render();};
+  lab.append(cb,'Karte nur mit diesen Flugzeugen');
+  const ch=el('button','btn','Ort ändern');ch.type='button';ch.onclick=()=>openSheet('place');
+  const acts=el('div','acts');acts.append(lab,ch);body.appendChild(acts);
+  const lists=el('div');lists.id='passLists';lists.style.display='contents';body.appendChild(lists);
+  body.appendChild(el('p','hint','Geschätzt aus der letzten Position, Kurs und Geschwindigkeit. Der Winkel in der linken Spalte ist die Höhe über dem Horizont, darunter die Himmelsrichtung, in der du das Flugzeug suchst. Flugzeuge drehen und sinken, die Zeiten sind daher grob.'));
+  paintPass(true);paintPlaceWx();loadExtra();
+}
+/* METAR für Mein Ort: eigener Flughafen oder nächste Station bis 40 km */
+async function paintPlaceWx(){
+  const pl=state.place;if(!pl)return;
+  await loadMetars([pl.lat-.5,pl.lon-.7,pl.lat+.5,pl.lon+.7],true);
+  const box=$('placeWx');if(!box||state.place!==pl)return;
+  let best=null;
+  for(const m of metars.values()){const d=dist([m.lat,m.lon],[pl.lat,pl.lon]);if((m.id===pl.icao||d<40000)&&(!best||(m.id===pl.icao?-1:d)<best.d))best={m,d:m.id===pl.icao?-1:d};}
+  if(!best){box.hidden=true;return;}
+  wxCard(box,best.m,best.d>0?fmtKm(best.d)+' entfernt':'');
+}
+function wxCard(box,m,extra){
+  const o=decodeMetar(m.raw),cat=m.cat||o.cat;
+  box.replaceChildren();box.className='wx';box.hidden=false;
+  const h=el('div','h');
+  h.append(el('b',null,'Wetter '+m.id+(m.name?' · '+m.name:'')));
+  if(cat){const c=el('span','cat c-'+cat,cat);c.title=CATTXT[cat]||'';h.appendChild(c);}
+  box.appendChild(h);
+  box.appendChild(el('span',null,metarText(o)||'METAR ohne lesbare Angaben'));
+  box.appendChild(el('small','hint num','Beobachtung '+hhmm(m.t*1000)+', '+ago(nowSec()-m.t)+(extra?' · '+extra:'')+(m.file?' · gespeicherter Stand':'')));
+  box.appendChild(el('code',null,m.raw));
+}
+let geoTimer=null;
+function renderPlacePicker(){
+  $('shTitle').textContent='Mein Ort wählen';
+  const body=$('shBody');body.replaceChildren();
+  body.appendChild(el('p','hint','Ein Ort, z. B. dein Garten oder Balkon: Du siehst, welche Flugzeuge gerade über dir sind und welche bald vorbeikommen. Oder ein Flughafen (Code oder Name, z. B. FRA oder EDFM): dann auch, was dort landet und startet, und das aktuelle Flughafenwetter.'));
+  const inp=el('input','field');inp.type='search';inp.placeholder='Ort oder Flughafen suchen';inp.autocomplete='off';inp.setAttribute('aria-label','Ort oder Flughafen suchen');
+  const acts=el('div','acts');
+  const mid=el('button','btn','Kartenmitte übernehmen');mid.type='button';
+  mid.onclick=()=>{const c=map.getCenter();setPlace({name:'Kartenmitte',lat:+c.lat.toFixed(5),lon:+c.lng.toFixed(5)});nameFromMap(c);openSheet('pass');};
+  const here=el('button','btn','Mein Standort');here.type='button';
+  here.onclick=()=>locate(ll=>{setPlace({name:'Mein Standort',lat:+ll[0].toFixed(5),lon:+ll[1].toFixed(5)});nameFromMap({lat:ll[0],lng:ll[1]});map.setView(ll,Math.max(map.getZoom(),10));openSheet('pass');});
+  acts.append(mid,here);
+  if(state.place){const rs=el('button','btn','Zurücksetzen');rs.type='button';rs.onclick=()=>{setPlace(null);renderPlacePicker();};acts.appendChild(rs);}
+  const ul=el('ul','rows');
+  body.append(inp,acts,ul);
+  const row=(title,sub,onclick)=>{const li=el('li'),bt=el('button','row');bt.type='button';bt.style.gridTemplateColumns='minmax(0,1fr)';
+    const d=el('span','d',title);d.appendChild(el('small',null,sub));bt.appendChild(d);bt.onclick=onclick;li.appendChild(bt);return li;};
+  inp.oninput=()=>{clearTimeout(geoTimer);geoTimer=setTimeout(async()=>{
+    const q=inp.value.trim();if(q.length<2){ul.replaceChildren();return;}
+    ul.replaceChildren();
+    const aps=await findAirports(q);
+    for(const a of aps.slice(0,6))ul.appendChild(row((a.iata?a.iata+' · ':'')+(a.icao||a.ident)+' · '+a.name,[a.city,regionName(a.cc)].filter(Boolean).join(', '),()=>{setPlace(placeOfApt(a));map.setView([a.lat,a.lon],Math.max(map.getZoom(),10));openSheet('pass');}));
+    if(q.length>=3){
+      try{
+        const b=map.getBounds().pad(2);
+        const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&accept-language=de&q='+encodeURIComponent(q)+'&viewbox='+[b.getWest(),b.getNorth(),b.getEast(),b.getSouth()].map(x=>x.toFixed(3)).join(','),{headers:{accept:'application/json'}});
+        for(const m of r.ok?await r.json():[]){
+          const name=m.name||m.display_name.split(',')[0];
+          ul.appendChild(row(name,m.display_name,()=>{setPlace({name,lat:+(+m.lat).toFixed(5),lon:+(+m.lon).toFixed(5)});map.setView([+m.lat,+m.lon],Math.max(map.getZoom(),10));openSheet('pass');}));
+        }
+      }catch(e){ul.appendChild(el('li','hint','Ortssuche gerade nicht erreichbar.'));}
+    }
+    if(!ul.children.length)ul.appendChild(el('li','hint','Nichts gefunden.'));
+  },500);};
+  inp.focus();
+}
+/* Name für einen Kartenpunkt (OpenStreetMap), damit oben nicht nur „Kartenmitte“ steht */
+async function nameFromMap(c){
+  try{
+    const r=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=16&accept-language=de&lat='+c.lat.toFixed(5)+'&lon='+c.lng.toFixed(5));
+    const j=await r.json(),a=j.address||{};
+    const n=a.suburb||a.city_district||a.quarter||a.village||a.town||a.city||j.name;
+    if(n&&state.place&&Math.abs(state.place.lat-c.lat)<1e-4){state.place.name=n;store.set('place',state.place);paintPlace();if(state.sheet==='pass')$('shTitle').replaceChildren(el('span',null,'Über '),n);}
+  }catch(e){}
+}
+
+/* ---------- Navigation: Flugplätze, Pisten, Funkfeuer (OurAirports, gemeinfrei) ---------- */
+let BIG=null,bigP=null;
+const tiles=new Map(),tileP=new Map();
+const apObj=r=>({ident:r[0],icao:r[1],iata:r[2],name:r[3],city:r[4],lat:r[5],lon:r[6],elev:r[7],type:r[8],cc:r[9],sched:r[10]});
+const navObj=r=>({ident:r[0],name:r[1],type:r[2],khz:r[3],lat:r[4],lon:r[5],elev:r[6],cc:r[7],dme:r[8],mv:r[9],use:r[10],power:r[11],apt:r[12]});
+function loadBig(){
+  return bigP||(bigP=(async()=>{
+    const c=await kv.get('apts');
+    if(c&&Array.isArray(c.rows)&&Date.now()-c.at<7*864e5){BIG=c.rows.map(apObj);return BIG;}
+    try{const rows=await getJSON('data/nav/airports.json',{timeout:30000});BIG=rows.map(apObj);kv.set('apts',{at:Date.now(),rows});}
+    catch(e){BIG=[];bigP=null;}
+    return BIG;
+  })());
+}
+const TILE=5,tileKey=(la,lo)=>Math.floor(la/TILE)*TILE+'_'+Math.floor(lo/TILE)*TILE;
+function loadTile(k){
+  if(tiles.has(k))return Promise.resolve(tiles.get(k));
+  if(tileP.has(k))return tileP.get(k);
+  const pr=(async()=>{
+    const c=await kv.get('t:'+k);
+    if(c&&c.t&&Date.now()-c.at<7*864e5){tiles.set(k,c.t);return c.t;}
+    let t={a:[],n:[],r:{},f:{}};
+    try{t=await getJSON('data/nav/t/'+k+'.json',{timeout:30000});kv.set('t:'+k,{at:Date.now(),t});}
+    catch(e){if(e.status!==404){tileP.delete(k);return t;}kv.set('t:'+k,{at:Date.now(),t});}
+    tiles.set(k,t);return t;
+  })();
+  tileP.set(k,pr);return pr;
+}
+function tileKeys(b){
+  const out=[];
+  for(let la=Math.floor(b.getSouth()/TILE)*TILE;la<b.getNorth();la+=TILE)
+    for(let lo=Math.floor(b.getWest()/TILE)*TILE;lo<b.getEast();lo+=TILE)out.push(la+'_'+((lo+540)%360-180));
+  return out.length>12?[]:out;
+}
+const NAVSVG={
+  hex:'<path d="M-6 0L-3 -5.2H3L6 0L3 5.2H-3Z"/>',
+  box:'<rect x="-7.5" y="-6.5" width="15" height="13"/>',
+  tac:'<g class="f"><rect x="-3" y="-8" width="6" height="2.4"/><rect x="-3" y="-8" width="6" height="2.4" transform="rotate(120)"/><rect x="-3" y="-8" width="6" height="2.4" transform="rotate(240)"/></g>',
+  dot:'<circle class="f" r="1.3"/>',
+  ndb:'<circle r="7" stroke-dasharray="1.1 1.9"/><circle r="4" stroke-dasharray="1.1 1.6"/>'
+};
+function navSvg(t){
+  let s='';
+  if(t==='VOR')s=NAVSVG.hex+NAVSVG.dot;
+  else if(t==='VOR-DME')s=NAVSVG.box+NAVSVG.hex+NAVSVG.dot;
+  else if(t==='VORTAC')s=NAVSVG.hex+NAVSVG.tac+NAVSVG.dot;
+  else if(t==='TACAN')s=NAVSVG.hex+NAVSVG.tac;
+  else if(t==='DME')s=NAVSVG.box+NAVSVG.dot;
+  else if(t==='NDB-DME')s=NAVSVG.box+NAVSVG.ndb+NAVSVG.dot;
+  else s=NAVSVG.ndb+NAVSVG.dot;
+  return '<svg viewBox="-10 -10 20 20">'+s+'</svg>';
+}
+function aptSvg(type,hdg){
+  if(type==='H')return '<svg viewBox="-10 -10 20 20"><circle class="s" r="6.5"/><text x="0" y="3.6" text-anchor="middle">H</text></svg>';
+  const r=type==='L'?7:type==='M'?6:4.6,bar=hdg!=null?'<rect class="f" x="-1.6" y="'+(-r-3)+'" width="3.2" height="'+(2*r+6)+'" transform="rotate('+Math.round(hdg)+')"/>':'';
+  return '<svg viewBox="-10 -10 20 20"><circle class="s" r="'+r+'"'+(type==='L'?' stroke-width="2.4"':'')+'/>'+bar+'</svg>';
+}
+function mainRwyHdg(rw){
+  if(!rw||!rw.length)return null;
+  const r=rw.slice().sort((a,b)=>(b[0]||0)-(a[0]||0))[0];
+  if(r[7]!=null)return r[7];
+  if(r[5]!=null&&r[9]!=null)return bearing([r[5],r[6]],[r[9],r[10]]);
+  const m=String(r[4]).match(/^(\d{1,2})/);return m?+m[1]*10:null;
+}
+const navLayer=L.layerGroup().addTo(map),rwyLayer=L.layerGroup().addTo(map),navMarks=new Map();
+let navSeq=0;
+async function paintNav(){
+  const seq=++navSeq,z=map.getZoom();
+  if(!state.nav||z<6){navLayer.clearLayers();rwyLayer.clearLayers();navMarks.clear();return;}
+  const b=map.getBounds().pad(.15),want=new Map();
+  const big=await loadBig();
+  const keys=z>=7?tileKeys(b):[];
+  const ts=await Promise.all(keys.map(loadTile));
+  if(seq!==navSeq)return;
+  const rwys={};for(const t of ts)Object.assign(rwys,t.r);
+  const add=(key,ll,html,label,cls,onclick)=>{want.set(key,{ll,html,label,cls,onclick});};
+  for(const a of big){
+    if((a.type==='M'&&z<7)||!b.contains([a.lat,a.lon]))continue;
+    const hdg=z>=9?mainRwyHdg(rwys[a.ident]):null;
+    add('a:'+a.ident,[a.lat,a.lon],aptSvg(a.type,hdg),z>=(a.type==='L'?8:9)?(a.icao||a.ident):'','c-apt',()=>openNav({kind:'apt',a}));
+  }
+  for(const t of ts){
+    if(z>=10)for(const r of t.a){
+      const a=apObj(r);if((a.type==='H'&&z<11)||!b.contains([a.lat,a.lon]))continue;
+      add('a:'+a.ident,[a.lat,a.lon],aptSvg(a.type,mainRwyHdg(rwys[a.ident])),z>=11&&a.type!=='H'?(a.icao||a.name.replace(/^(Flugplatz|Sonderlandeplatz|Segelfluggelände|Segelfluggelande|Ultraleichtfluggelände)\s+/i,'').slice(0,18)):'','c-apt',()=>openNav({kind:'apt',a}));
+    }
+    for(const r of t.n){
+      const n=navObj(r);const vor=/VOR|TACAN/.test(n.type);
+      if((!vor&&z<9)||!b.contains([n.lat,n.lon]))continue;
+      add('n:'+n.ident+':'+n.type+':'+n.lat,[n.lat,n.lon],navSvg(n.type),z>=(vor?8:10)?n.ident:'','c-nav',()=>openNav({kind:'nav',n}));
+    }
+  }
+  for(const[k,m]of navMarks)if(!want.has(k)||m._sig!==want.get(k).html+want.get(k).label){navLayer.removeLayer(m);navMarks.delete(k);}
+  for(const[k,w]of want){
+    if(navMarks.has(k))continue;
+    const m=L.marker(w.ll,{icon:L.divIcon({className:'',html:'<span class="nv '+w.cls+'">'+w.html+(w.label?'<i>'+w.label+'</i>':'')+'</span>',iconSize:[0,0]}),pane:'nav',keyboard:false});
+    m.on('click',w.onclick);m._sig=w.html+w.label;navLayer.addLayer(m);navMarks.set(k,m);
+  }
+  /* Pisten maßstäblich ab Zoom 11 */
+  rwyLayer.clearLayers();
+  if(z>=11){
+    const c=cssVar('--apt');
+    for(const[id,list]of Object.entries(rwys))for(const r of list){
+      if(r[5]==null||r[9]==null||!(b.contains([r[5],r[6]])||b.contains([r[9],r[10]])))continue;
+      const w=Math.max(3,Math.min(14,(r[1]||100)*FT/(156543*Math.cos(r[5]*RAD)/2**z)));
+      rwyLayer.addLayer(L.polyline([[r[5],r[6]],[r[9],r[10]]],{pane:'navl',color:c,weight:w,opacity:/Gras|Erde|Schotter/.test(surface(r[2]))?.35:.6,lineCap:'butt',interactive:false}));
+    }
+  }
+}
+async function findAirports(q){
+  const big=await loadBig(),u=q.toUpperCase().trim(),n=norm(q);
+  if(!n)return[];
+  const sc=a=>a.iata===u||a.icao===u||a.ident===u?0:(a.icao||'').startsWith(u)?1:norm(a.city).startsWith(n)?2:norm(a.name).includes(n)||norm(a.city).includes(n)?3:9;
+  return big.map(a=>[sc(a),a]).filter(x=>x[0]<9).sort((a,b)=>a[0]-b[0]||(b[1].type==='L')-(a[1].type==='L')).map(x=>x[1]);
+}
+const placeOfApt=a=>({name:(a.iata||a.icao||a.ident)+' '+(a.city||a.name),lat:a.lat,lon:a.lon,icao:a.icao||a.ident,elev:a.elev||0});
+function openNav(x){state.navSel=x;openSheet('nav');}
+async function renderNav(){
+  const x=state.navSel;if(!x)return;
+  const body=$('shBody');body.replaceChildren();
+  const b=$('shBadge');b.hidden=false;
+  if(x.kind==='nav'){
+    const n=x.n;b.className='badge c-nav';b.textContent=n.ident;
+    $('shTitle').replaceChildren(el('span',null,n.type+' '),n.name);
+    const dl=el('dl','facts num'),add=(k,v)=>{if(v==null||v==='')return;dl.append(el('dt',null,k),el('dd',null,v));};
+    add('Art',NAVTYPE[n.type]||n.type);add('Frequenz',navFreq(n.type,n.khz));add('Kennung',n.ident);add('Morsezeichen',morse(n.ident));
+    add('DME-Kanal',n.dme);add('Höhe',n.elev!=null?nf(n.elev,0)+' ft':null);add('Missweisung',n.mv!=null?nf(Math.abs(n.mv),1)+'° '+(n.mv<0?'West':'Ost'):null);
+    add('Nutzung',USAGE[n.use]||n.use);add('Leistung',{HIGH:'hoch',MEDIUM:'mittel',LOW:'gering'}[n.power]||n.power);
+    if(n.apt){const big=await loadBig(),t=await loadTile(tileKey(n.lat,n.lon));if(state.navSel!==x)return;
+      const a=big.find(y=>y.ident===n.apt)||(t.a.find(r=>r[0]===n.apt)?apObj(t.a.find(r=>r[0]===n.apt)):null);
+      if(a)add('Flughafen',(a.icao?a.icao+' · ':'')+a.name);else if(/^[A-Z]{4}$/.test(n.apt))add('Flughafen',n.apt);}
+    add('Land',n.cc?regionName(n.cc):null);
+    if(state.place){const d=dist([n.lat,n.lon],[state.place.lat,state.place.lon]);add('Entfernung',fmtKm(d)+' von '+state.place.name+', Richtung '+compass(bearing([state.place.lat,state.place.lon],[n.lat,n.lon])));}
+    body.appendChild(dl);
+    body.appendChild(el('p','hint','Daten aus OurAirports, nicht amtlich. Nicht für die Navigation verwenden.'));
+    return;
+  }
+  const a=x.a;
+  b.className='badge c-apt';b.textContent=a.icao||a.ident;
+  $('shTitle').replaceChildren(a.iata?el('span',null,a.iata+' · '):'',a.name);
+  const t=await loadTile(tileKey(a.lat,a.lon));
+  if(state.navSel!==x||state.sheet!=='nav')return;
+  const now=el('div','now',[APTTYPE[a.type],a.city,regionName(a.cc)].filter(Boolean).join(' · '));
+  now.appendChild(el('small',null,'Höhe '+(a.elev!=null?nf(a.elev,0)+' ft · '+nf(Math.round(a.elev*FT),0)+' m':'unbekannt')+(a.sched?' · Linienverkehr':'')));
+  body.appendChild(now);
+  const wx=el('div','wx');wx.hidden=true;body.appendChild(wx);
+  const rw=t.r[a.ident]||[];
+  if(rw.length){
+    body.appendChild(el('p','sub','Pisten'));
+    const ul=el('ul','rows num');
+    for(const r of rw.slice().sort((p,q)=>(q[0]||0)-(p[0]||0))){
+      const li=el('li'),d=el('div');d.style.padding='8px 0';
+      d.append(el('b',null,[r[4],r[8]].filter(Boolean).join('/')||'Piste'),' · '+[r[0]?nf(Math.round(r[0]*FT),0)+' m'+(r[1]?' × '+nf(Math.round(r[1]*FT),0)+' m':''):'',surface(r[2]),r[3]?'befeuert':''].filter(Boolean).join(' · '));
+      li.appendChild(d);ul.appendChild(li);
+    }
+    body.appendChild(ul);
+  }
+  const fq=t.f[a.ident]||[];
+  if(fq.length){
+    body.appendChild(el('p','sub','Frequenzen'));
+    const dl=el('dl','facts num');
+    for(const f of fq)dl.append(el('dt',null,f[0]),el('dd',null,nf(f[2],3)+' MHz'+(f[1]?' · '+f[1]:'')));
+    body.appendChild(dl);
+  }
+  const acts=el('div','acts');
+  const mk=el('button','btn pri','Als Mein Ort');mk.type='button';mk.onclick=()=>{setPlace(placeOfApt(a));setTab('pass',true);openSheet('pass');};
+  acts.append(mk,Object.assign(link('OurAirports ↗','https://ourairports.com/airports/'+encodeURIComponent(a.ident)+'/'),{className:'btn'}));
+  body.appendChild(acts);
+  body.appendChild(el('p','hint','Daten aus OurAirports, nicht amtlich. Nicht für die Navigation verwenden.'));
+  if(a.icao){
+    await loadMetars([a.lat-.3,a.lon-.4,a.lat+.3,a.lon+.4],true);
+    if(state.navSel!==x)return;
+    const m=metars.get(a.icao);if(m)wxCard(wx,m,'');
+  }
+}
+
+/* ---------- Wetter: METAR (aviationweather.gov, Rückfall Datei im Repo) ---------- */
+const metars=new Map();   // ICAO -> {id, lat, lon, raw, t, cat, name, file}
+let wxLive=true,wxFailAt=0,wxFileAt=0,wxBoxes=[];
+const wxLayer=L.layerGroup().addTo(map);
+function covered(b){return wxBoxes.some(x=>Date.now()-x.at<600000&&x.b[0]<=b[0]&&x.b[1]<=b[1]&&x.b[2]>=b[2]&&x.b[3]>=b[3]);}
+async function loadMetars(b,force){
+  if((!state.wx&&!force)||covered(b))return;
+  if(wxLive||Date.now()-wxFailAt>600000){
+    try{
+      const q='bbox='+b.map(x=>x.toFixed(2)).join(',')+'&format=json';
+      const url=CFG.proxy?CFG.proxy.replace(/\/+$/,'')+'/metar?'+q:'https://aviationweather.gov/api/data/metar?'+q;
+      const j=await getJSON(url,{timeout:15000});
+      for(const m of Array.isArray(j)?j:[]){
+        if(!m.icaoId||!m.rawOb)continue;
+        const t=typeof m.obsTime==='number'?m.obsTime:Date.parse(m.reportTime||m.obsTime)/1000;
+        const o=metars.get(m.icaoId);if(o&&!o.file&&o.t>t)continue;
+        metars.set(m.icaoId,{id:m.icaoId,lat:m.lat,lon:m.lon,raw:m.rawOb,t,cat:m.fltCat||'',name:m.name?String(m.name).split(',')[0]:''});
+      }
+      wxLive=true;wxBoxes.push({b:b.slice(),at:Date.now()});if(wxBoxes.length>20)wxBoxes.shift();
+      return;
+    }catch(e){wxLive=false;wxFailAt=Date.now();}
+  }
+  if(Date.now()-wxFileAt<600000)return;
+  wxFileAt=Date.now();
+  try{
+    const j=await getJSON('data/metar.json?t='+Math.floor(Date.now()/600000));
+    for(const[id,r]of Object.entries(j.m||{})){const o=metars.get(id);if(o&&!o.file&&o.t>=r[0])continue;metars.set(id,{id,t:r[0],lat:r[1],lon:r[2],raw:r[3],cat:r[4]||'',name:'',file:true});}
+  }catch(e){}
+}
+async function paintWx(){
+  wxLayer.clearLayers();
+  const z=map.getZoom();if(!state.wx||z<7)return;
+  const bb=map.getBounds().pad(.2),b=[bb.getSouth(),bb.getWest(),bb.getNorth(),bb.getEast()];
+  await loadMetars(b);
+  wxLayer.clearLayers();
+  const vb=map.getBounds().pad(.1),now=nowSec();
+  for(const m of metars.values()){
+    if(!vb.contains([m.lat,m.lon])||now-m.t>3*3600)continue;
+    const cat=m.cat||decodeMetar(m.raw).cat||'VFR';
+    const mk=L.marker([m.lat,m.lon],{icon:L.divIcon({className:'',html:'<span class="wxm c-'+cat+'"><span></span></span>',iconSize:[0,0]}),pane:'wx',keyboard:false,title:m.id+' · '+(CATTXT[cat]||'')});
+    mk.on('click',()=>{state.wxSel=m;openSheet('wx');});
+    wxLayer.addLayer(mk);
+  }
+}
+async function renderWx(){
+  const m=state.wxSel;if(!m)return;
+  const b=$('shBadge');b.hidden=false;b.className='badge c-apt';b.textContent=m.id;
+  $('shTitle').replaceChildren(el('span',null,'Wetter '),m.name||m.id);
+  const body=$('shBody');body.replaceChildren();
+  const box=el('div','wx');body.appendChild(box);wxCard(box,m,'');
+  const big=await loadBig(),a=big.find(x=>x.icao===m.id);
+  const acts=el('div','acts');
+  if(a){const o=el('button','btn','Flughafen');o.type='button';o.onclick=()=>openNav({kind:'apt',a});acts.appendChild(o);}
+  const mk=el('button','btn pri','Als Mein Ort');mk.type='button';
+  mk.onclick=()=>{setPlace(a?placeOfApt(a):{name:m.id+(m.name?' '+m.name:''),lat:m.lat,lon:m.lon,icao:m.id});setTab('pass',true);openSheet('pass');};
+  acts.appendChild(mk);body.appendChild(acts);
+  body.appendChild(el('p','hint','Farben wie bei aviationweather.gov: grün Sichtflug, blau eingeschränkter Sichtflug, rot Instrumentenflug, violett sehr schlechte Sicht oder tiefe Wolken. Wetterbeobachtung, keine Vorhersage.'));
+}
+
+/* ---------- Luftraum: openAIP-Kacheln (kostenloser Schlüssel nötig) ---------- */
+let aipLayer=null;
+const aipKey=()=>store.get('aipkey','')||CFG.openaipKey||'';
+function applyAip(){
+  if(aipLayer){map.removeLayer(aipLayer);aipLayer=null;}
+  if(!state.aip||!aipKey())return;
+  aipLayer=L.tileLayer('https://api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey='+encodeURIComponent(aipKey()),
+    {pane:'aip',minZoom:4,maxZoom:18,maxNativeZoom:14,opacity:.9,attribution:'Luftraum: © openAIP (CC BY-NC 4.0)'});
+  let errs=0;aipLayer.on('tileerror',()=>{if(++errs===4)note('openAIP-Kacheln laden nicht. Schlüssel unter „Luftraum“ prüfen.',true,10000);});
+  aipLayer.addTo(map);
+}
+function renderAip(){
+  $('shTitle').textContent='Luftraum (openAIP)';$('shBadge').hidden=true;
+  const body=$('shBody');body.replaceChildren();
+  body.appendChild(el('p',null,'Lufträume (Kontrollzonen, Flugbeschränkungsgebiete, TMZ/RMZ), Meldepunkte und Hindernisse kommen von openAIP, einem gemeinschaftlichen Projekt. Für die Kartenkacheln braucht es einen kostenlosen Schlüssel:'));
+  const ol=el('ol');for(const t of['Auf openaip.net anmelden (kostenlos).','Im Konto unter „API Clients“ einen Client anlegen und den Schlüssel kopieren.','Hier einfügen und speichern. Der Schlüssel bleibt in diesem Browser.'])ol.appendChild(el('li',null,t));
+  ol.style.margin='0';ol.style.paddingLeft='20px';body.appendChild(ol);
+  const inp=el('input','field');inp.type='text';inp.autocomplete='off';inp.spellcheck=false;inp.placeholder='openAIP-Schlüssel';inp.value=store.get('aipkey','');inp.setAttribute('aria-label','openAIP-Schlüssel');
+  const acts=el('div','acts');
+  const sv=el('button','btn pri','Speichern und anzeigen');sv.type='button';
+  sv.onclick=()=>{const k=inp.value.trim();if(k)store.set('aipkey',k);else store.del('aipkey');state.aip=!!aipKey();store.set('aip',state.aip);paintChips();applyAip();closeSheet();};
+  const off=el('button','btn','Luftraum ausblenden');off.type='button';off.onclick=()=>{state.aip=false;store.set('aip',false);paintChips();applyAip();closeSheet();};
+  acts.append(sv,off,link('openaip.net ↗','https://www.openaip.net'));
+  body.append(inp,acts);
+  if(CFG.openaipKey)body.appendChild(el('p','hint','Diese Seite hat bereits einen Schlüssel in config.json. Ein Schlüssel hier hat Vorrang.'));
+  body.appendChild(el('p','hint','openAIP-Daten stehen unter CC BY-NC 4.0 (nicht kommerziell). Nicht für die Flugvorbereitung verwenden, dafür gelten die amtlichen Unterlagen (AIP, DFS).'));
+}
+
+/* ---------- Suche ---------- */
+async function findPlane(){
+  const raw=state.queryRaw,q=state.query;if(!q)return;
+  const hits=[...allPlanes()].filter(p=>matches(p,q)&&nowSec()-p.ts<DROP).sort((a,b)=>(a.gnd?1:0)-(b.gnd?1:0)||nameOf(a).localeCompare(nameOf(b)));
+  if(hits.length===1){selectPlane(hits[0].h,true);return;}
+  if(hits.length>1){state.found=hits.slice(0,40);setTab('map',true);openSheet('find');return;}
+  note('Suche „'+raw+'“ weltweit …',false,60000);
+  const U=raw.toUpperCase().replace(/\s+/g,''),tries=[];
+  const cs=toCallsign(U);if(cs)tries.push(['callsign',cs]);
+  if(/^[A-Z0-9]{3,8}$/.test(U))tries.push(['callsign',U]);
+  if(/^[A-Z0-9]{1,3}-?[A-Z0-9]{2,5}$/.test(U))tries.push(['reg',U]);
+  if(/^[0-9A-F]{6}$/.test(U))tries.push(['hex',U.toLowerCase()]);
+  try{
+    for(const[k,v]of tries){
+      const l=await lookup(k,[v]);
+      if(l.length){state.note=null;for(const p of l)state.planes.set(p.h,merge(p,planeBy(p.h)));
+        if(l.length===1)selectPlane(l[0].h,true);else{state.found=l;setTab('map',true);openSheet('find');}return;}
+    }
+    note('„'+raw+'“ ist gerade nirgends in der Luft zu sehen (oder sendet nicht).',true,10000);
+  }catch(e){note('Suche nicht möglich: '+e.message,true,8000);}
+}
+function renderFind(){
+  $('shTitle').textContent=state.found.length+' Treffer für „'+state.queryRaw+'“';
+  const body=$('shBody');body.replaceChildren();
+  const ul=el('ul','rows'),now=nowSec();
+  for(const p of state.found){
+    const li=el('li'),b=el('button','row');b.type='button';b.style.gridTemplateColumns='auto minmax(0,1fr)';
+    const d=el('span','d',p.desc||p.t||CATS[p.cat]);d.appendChild(el('small',null,(p.gnd?'am Boden':fmtAlt(p.alt)+' · '+kmh(p)+' km/h')+' · Position '+ago(now-p.ts)));
+    b.append(el('span','badge c-'+p.cat,nameOf(p)),d);
+    b.onclick=()=>selectPlane(p.h,true);li.appendChild(b);ul.appendChild(li);
+  }
+  body.appendChild(ul);
+}
+
+/* ---------- Was ist neu (liest CHANGELOG.md aus dem Repo) und Über ---------- */
+let news=null;
+async function loadNews(){
+  try{
+    const r=await fetch('CHANGELOG.md',{cache:'no-cache'});if(!r.ok)return;
+    news=parseChangelog(await r.text());if(!news.length)return;
+    const seen=store.get('news',null),latest=news[0].v;
+    if(seen==null&&!['place','favs','cats'].some(k=>store.get(k,null)!=null)){store.set('news',latest);return;}
+    if(seen===latest)return;
+    const fresh=seen==null?news.slice(0,1):news.filter(e=>e.v>seen);
+    const first=(fresh[0]||news[0]).items[0],n=fresh.reduce((a,e)=>a+e.items.length,0);
+    $('newsOpen').replaceChildren(el('b',null,'Neu: '),first+(n>1?' (+'+(n-1)+')':''));
+    $('news').hidden=false;
+  }catch(e){}
+}
+function markNewsSeen(){if(news&&news.length)store.set('news',news[0].v);$('news').hidden=true;}
+function renderNews(){
+  $('shTitle').textContent='Was ist neu';
+  const body=$('shBody');body.replaceChildren();
+  if(!news||!news.length){body.appendChild(el('p','hint','Die Liste der Neuerungen lässt sich gerade nicht laden.'));return;}
+  const box=el('div','newsbox');
+  for(const e of news){
+    const d=/^\d{4}-\d{2}-\d{2}$/.test(e.v)?new Date(e.v+'T12:00:00').toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'}):e.v;
+    box.appendChild(el('h3',null,d));
+    const ul=el('ul');for(const it of e.items)ul.appendChild(el('li',null,it));box.appendChild(ul);
+  }
+  body.appendChild(box);markNewsSeen();
+}
+function newsLink(){
+  const f=el('div','foot');
+  const b=el('button','newslink','Was ist neu?');b.type='button';b.onclick=async()=>{if(!news)await loadNews();openSheet('news');};
+  const a=el('button','newslink','Über Flugradar');a.type='button';a.onclick=()=>openSheet('about');
+  f.append(b,a);return f;
+}
+function renderAbout(){
+  $('shTitle').textContent='Über Flugradar';
+  const body=$('shBody');body.replaceChildren();
+  const box=el('div','about');
+  const sec=(h,...nodes)=>{box.appendChild(el('h3',null,h));for(const n of nodes)box.appendChild(n);};
+  const p=t=>el('p',null,t);
+  const ul=items=>{const u=el('ul');for(const i of items)u.appendChild(typeof i==='string'?el('li',null,i):i);return u;};
+  sec('Was ist das?',p('Eine private, kostenlose und werbefreie Karte, die zeigt, welche Flugzeuge gerade wo fliegen, mit Flugplätzen, Funkfeuern und Flugwetter. Ein Hobbyprojekt ohne kommerzielle Absicht, Schwesterprojekt von Zugradar und Schiffsradar.'));
+  const src=p('Der Quelltext ist offen (MIT-Lizenz): ');src.append(link('github.com/SquaredP/flugradar','https://github.com/SquaredP/flugradar'),'.');box.appendChild(src);
+  sec('Wie genau sind die Positionen?',
+    p('Flugzeuge senden ihre GPS-Position selbst per ADS-B, meist jede Sekunde. Ehrenamtliche Empfänger fangen diese Signale auf und teilen sie mit offenen Netzwerken. Wo es keinen Empfänger gibt, fehlen Flugzeuge. Manche Positionen sind per MLAT aus den Laufzeiten berechnet und etwas ungenauer.'),
+    p('Zwischen zwei Abfragen schreibt die Seite die Position mit Kurs und Geschwindigkeit fort, höchstens 60 Sekunden. Gestrichelte Flugzeuge haben seit über einer Minute keine Position geschickt. Routen (Start und Ziel) stammen aus einer gemeinschaftlich gepflegten Datenbank zum Rufzeichen und können falsch oder veraltet sein; die Ankunftszeit ist eine grobe Schätzung über die direkte Strecke.'),
+    p('Nicht für die Navigation oder Flugvorbereitung verwenden. Dafür gelten die amtlichen Unterlagen.'));
+  const st=el('ul');
+  for(const pr of PROV){
+    const f=pfail[pr.id],on=!pr.on||pr.on();
+    st.appendChild(el('li',null,pr.name+': '+(!on?'nicht eingerichtet':state.prov===pr.id&&!state.err?'aktiv':f?'zuletzt fehlgeschlagen um '+hhmm(f.at)+' ('+f.msg+')':'bereit')));
+  }
+  sec('Datenquellen für Flugzeuge',
+    p('Die Seite fragt diese freien Dienste der Reihe nach und nimmt den ersten, der antwortet. Stand gerade:'),st,
+    p('Antwortet kein Dienst („gesperrt oder nicht erreichbar“), lässt der Dienst vermutlich keine Abfragen direkt aus dem Browser zu. Dann hilft ein eigener kleiner Vermittler (Cloudflare Worker, kostenlos), siehe README im Repository.'));
+  sec('Weitere Datenquellen',
+    ul(['Routen: adsb.lol (Routendatenbank aus vradarserver standing-data), Rückfall adsbdb.com',
+        'Flugzeugdaten: aus den Flugdaten (tar1090-Datenbank) und adsbdb.com',
+        'Flugplätze, Pisten, Frequenzen, Funkfeuer: OurAirports (gemeinfrei), wöchentlich aktualisiert',
+        'Flugwetter (METAR): NOAA Aviation Weather Center (aviationweather.gov), gemeinfrei',
+        'Luftraum (optional): openAIP, CC BY-NC 4.0, mit eigenem Schlüssel',
+        'Karte: © Esri, © OpenStreetMap-Mitwirkende · Ortssuche: Nominatim / OpenStreetMap',
+        'Kartenbibliothek Leaflet (BSD-2), Schrift Barlow (SIL OFL), beides liegt direkt auf dieser Seite.']));
+  sec('Datenschutz',
+    p('Kein Konto, keine Cookies, keine Werbung, keine Statistik und kein Tracking. Es gibt keinen eigenen Server, der etwas von dir speichert.'),
+    p('Nur in deinem Browser gespeichert, nie gesendet: Mein Ort, Filter, Kartenausschnitt, gemerkte Flüge und Flugzeuge, ein openAIP-Schlüssel und welche Neuerungen du gesehen hast. Navigationsdaten liegen zwischengespeichert im Gerät. Löschen geht über die Website-Daten des Browsers.'),
+    p('Beim Benutzen fragt dein Browser direkt bei diesen Diensten an, die dabei deine IP-Adresse sehen:'),
+    ul(['Flugdatendienst (adsb.lol, airplanes.live oder OpenSky): Mittelpunkt und Radius des sichtbaren Ausschnitts, gesuchte Flüge, gemerkte Flüge und Flugzeuge',
+        'adsb.lol und adsbdb.com: Rufzeichen und Transpondercode des angetippten Flugzeugs (für Route und Flugzeugdaten)',
+        'aviationweather.gov: sichtbarer Kartenausschnitt (für METAR)',
+        'Nominatim: Suchtext und Kartenpunkt bei der Ortswahl',
+        'Esri und, falls eingeschaltet, openAIP: Kartenkacheln des sichtbaren Bereichs',
+        'GitHub Pages: liefert diese Seite und die Navigationsdaten aus und führt eigene Zugriffsprotokolle']),
+    p('Dein Standort wird nur abgefragt, wenn du den Standortknopf tippst, und bleibt im Browser. Weil die Karte dorthin springt, geht danach der Kartenausschnitt an den Flugdatendienst.'));
+  sec('Fehler oder Wünsche?',(()=>{const q=p('Bitte als ');q.append(link('Issue auf GitHub','https://github.com/SquaredP/flugradar/issues'),' melden.');return q;})());
+  body.appendChild(box);
+}
+$('newsOpen').onclick=()=>openSheet('news');
+$('newsX').onclick=markNewsSeen;
+
+/* ---------- Blatt und Reiter ---------- */
+function openSheet(kind){
+  closeMenu();
+  state.sheet=kind;$('sheet').hidden=false;$('shBadge').hidden=true;
+  if(kind==='plane')renderPlaneSheet();
+  if(kind==='pass')renderPass();
+  if(kind==='place')renderPlacePicker();
+  if(kind==='fav')renderFavs();
+  if(kind==='find')renderFind();
+  if(kind==='news')renderNews();
+  if(kind==='about')renderAbout();
+  if(kind==='nav')renderNav();
+  if(kind==='wx')renderWx();
+  if(kind==='aip')renderAip();
+  map.invalidateSize();paintTrack();
+}
+/* Schließen klappt nur das Blatt ein. Das Flugzeug bleibt verfolgt, bis die Kapsel oben mit × beendet wird. */
+function closeSheet(){state.sheet=null;$('sheet').hidden=true;setTab('map',true);map.invalidateSize();paintTrack();}
+function setTab(tab,quiet){
+  state.tab=tab;
+  document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-current',String(b.dataset.tab===tab)));
+  if(quiet)return;
+  if(tab==='pass')openSheet(state.place?'pass':'place');
+  else if(tab==='fav')openSheet('fav');
+  else if(tab==='map'&&state.sheet&&state.sheet!=='plane'){state.sheet=null;$('sheet').hidden=true;if(state.sel)openSheet('plane');map.invalidateSize();}
+}
+document.querySelector('nav').addEventListener('click',e=>{const b=e.target.closest('button');if(b)setTab(b.dataset.tab);});
+$('shClose').onclick=closeSheet;
+$('placeBtn').onclick=()=>{setTab('pass',true);openSheet('place');};
+
+/* ---------- Filter ---------- */
+function paintChips(){
+  const n=state.cats.size,k=CAT_ORDER.length;
+  $('typeTxt').textContent=(n===k?'Alle Typen':n?n+' von '+k+' Typen':'Keine Typen')+(state.gnd?' + Boden':'');
+  $('navChip').setAttribute('aria-pressed',String(state.nav));
+  $('wxChip').setAttribute('aria-pressed',String(state.wx));
+  $('aipChip').setAttribute('aria-pressed',String(state.aip&&!!aipKey()));
+}
+let menuOpen=false;
+function closeMenu(){menuOpen=false;$('menu').hidden=true;$('typeBtn').setAttribute('aria-expanded','false');}
+function renderMenu(){
+  const box=$('menu');
+  box.replaceChildren(el('h3',null,'Diese Flugzeuge zeigen'));
+  const all=el('div','all'),a1=el('button',null,'Alle'),a2=el('button',null,'Keine');a1.type=a2.type='button';
+  const save=()=>store.set('cats',[...state.cats]);
+  const setAll=on=>{state.cats=new Set(on?CAT_ORDER:[]);save();paintChips();renderMenu();render();paintPass(true);};
+  a1.onclick=()=>setAll(true);a2.onclick=()=>setAll(false);all.append(a1,a2);box.appendChild(all);
+  for(const k of CAT_ORDER){
+    const lab=el('label','c-'+k),cb=el('input'),dot=el('i');cb.type='checkbox';cb.checked=state.cats.has(k);
+    cb.onchange=()=>{cb.checked?state.cats.add(k):state.cats.delete(k);save();paintChips();render();paintPass(true);};
+    lab.append(cb,dot,el('span',null,CATS[k]));box.appendChild(lab);
+  }
+  const lab=el('label'),cb=el('input'),dot=el('i','ring');cb.type='checkbox';cb.checked=state.gnd;
+  cb.onchange=()=>{state.gnd=cb.checked;store.set('gnd',state.gnd);paintChips();render();};
+  lab.append(cb,dot,el('span',null,'Am Boden (rollend oder geparkt)'));
+  box.append(el('h3',null,'Zusätzlich'),lab);
+}
+function toggleMenu(){
+  if(menuOpen){closeMenu();return;}
+  if(state.sheet)closeSheet();
+  menuOpen=true;renderMenu();$('menu').hidden=false;$('typeBtn').setAttribute('aria-expanded','true');
+}
+document.addEventListener('click',e=>{if(menuOpen&&!e.composedPath().some(n=>n.id==='menu'||n.id==='typeBtn'))closeMenu();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu();});
+$('chips').addEventListener('click',e=>{
+  const c=e.target.closest('.chip');if(!c)return;
+  if(c.id==='typeBtn')return toggleMenu();
+  if(c.id==='navChip'){state.nav=!state.nav;store.set('nav',state.nav);paintNav();}
+  if(c.id==='wxChip'){state.wx=!state.wx;store.set('wx',state.wx);paintWx();}
+  if(c.id==='aipChip'){
+    if(!aipKey()){setTab('map',true);openSheet('aip');return;}
+    state.aip=!state.aip;store.set('aip',state.aip);applyAip();
+  }
+  paintChips();
+});
+$('aipChip').addEventListener('contextmenu',e=>{e.preventDefault();openSheet('aip');});
+$('planeQ').addEventListener('input',e=>{state.queryRaw=e.target.value.trim();state.query=norm(e.target.value);render();paintPass(true);});
+$('planeQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();e.target.blur();findPlane();}});
+
+/* ---------- Standort ---------- */
+function locate(cb){
+  if(!navigator.geolocation){setStatus('Dieser Browser gibt keinen Standort frei.',true);return;}
+  navigator.geolocation.getCurrentPosition(p=>cb([p.coords.latitude,p.coords.longitude]),
+    ()=>setStatus('Standort nicht verfügbar. Freigabe im Browser prüfen (nur über https).',true),{enableHighAccuracy:true,timeout:10000});
+}
+$('locBtn').onclick=()=>locate(ll=>{
+  if(meMarker)meMarker.setLatLng(ll);else meMarker=L.marker(ll,{icon:L.divIcon({className:'',html:'<span class="me"></span>',iconSize:[0,0]}),interactive:false,pane:'wx'}).addTo(map);
+  if(state.sel)state.sel.follow=false;
+  map.setView(ll,Math.max(map.getZoom(),10));
+});
+
+/* ---------- Takt ---------- */
+let moveT=null;
+/* Doppeltippen = eine Zoomstufe näher, um die Tippstelle (eigene Erkennung, weil iOS-Safari das sonst als Seitenzoom schluckt) */
+{const c=map.getContainer();let last=null;
+  c.style.touchAction='none';
+  c.addEventListener('pointerup',e=>{
+    if(e.pointerType==='mouse'||e.target.closest('.leaflet-control,.leaflet-popup'))return;
+    const t=Date.now(),p=[e.clientX,e.clientY];
+    if(last&&t-last.t<320&&Math.hypot(p[0]-last.p[0],p[1]-last.p[1])<30){
+      last=null;e.preventDefault();
+      const z=Math.min(map.getMaxZoom()||18,map.getZoom()+1);
+      if(state.sel&&state.sel.follow)map.setZoom(z);else map.setZoomAround(map.mouseEventToContainerPoint(e),z);
+    }else last={t,p};
+  });
+  map.on('dblclick',e=>{const z=Math.min(map.getMaxZoom()||18,map.getZoom()+1);if(state.sel&&state.sel.follow)map.setZoom(z);else map.setZoomAround(e.containerPoint,z);});}
+/* Beim Folgen verschiebt render() selbst die Karte; dann nicht erneut rendern, sonst entsteht eine Schleife */
+map.on('moveend',()=>{
+  const c=map.getCenter();store.set('view',{c:[c.lat,c.lng],z:map.getZoom()});
+  if(!(state.sel&&state.sel.follow))render();
+  clearTimeout(moveT);moveT=setTimeout(()=>{loadPlanes();paintNav();paintWx();},600);
+});
+map.on('dragstart',()=>{if(state.sel&&state.sel.follow){state.sel.follow=false;const b=$('followBtn');if(b)b.setAttribute('aria-pressed','false');}});
+setInterval(()=>{
+  if(document.hidden)return;
+  render();paintPass();
+  if(Date.now()-lastLoad>=interval())loadPlanes(true);
+  refreshSel();loadExtra();
+  if(state.sheet==='fav')lookupFavs();
+},1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadPlanes(true);});
+$('hintX').onclick=$('hintOpen').onclick=()=>{store.set('hint',1);$('hint').hidden=true;};
+if(!store.get('hint',0))$('hint').hidden=false;
+async function loadConfig(){
+  try{const r=await fetch('config.json',{cache:'no-cache'});if(r.ok){const j=await r.json();if(typeof j.proxy==='string')CFG.proxy=j.proxy.trim();if(typeof j.openaipKey==='string')CFG.openaipKey=j.openaipKey.trim();}}catch(e){}
+}
+paintPlace();paintChips();
+Promise.race([loadConfig(),new Promise(r=>setTimeout(r,1500))]).then(()=>{paintChips();applyAip();render();loadPlanes(true);paintNav();paintWx();loadNews();});
+</script>
+</body>
+</html>

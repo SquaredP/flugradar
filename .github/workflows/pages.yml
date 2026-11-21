@@ -1,0 +1,68 @@
+name: Seite bauen und veröffentlichen
+
+# Bei jedem Push auf main und alle 30 Minuten (für den METAR-Rückfall):
+# Navigationsdaten aus OurAirports (wöchentlich neu, sonst aus dem Zwischenspeicher),
+# METAR für Europa holen und alles auf GitHub Pages veröffentlichen.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '13,43 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - id: week
+        run: echo "key=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - id: navcache
+        uses: actions/cache@v4
+        with:
+          path: _nav
+          key: nav-${{ steps.week.outputs.key }}-${{ hashFiles('tools/build-nav.mjs') }}
+
+      - name: Navigationsdaten (OurAirports)
+        if: steps.navcache.outputs.cache-hit != 'true'
+        run: node tools/build-nav.mjs "" _nav
+
+      - name: METAR (Rückfall)
+        continue-on-error: true
+        run: node tools/metar.mjs _metar.json
+
+      - name: Seite zusammenstellen
+        run: |
+          mkdir -p _site/data
+          cp -r index.html CHANGELOG.md README.md LICENSE config.json vendor _site/
+          cp -r _nav _site/data/nav
+          if [ -s _metar.json ]; then cp _metar.json _site/data/metar.json; else echo '{"m":{}}' > _site/data/metar.json; fi
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

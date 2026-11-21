@@ -1,0 +1,5 @@
+{
+  "_hinweis": "proxy: Adresse eines eigenen Vermittlers (siehe README), z. B. https://flugradar.DEINNAME.workers.dev – leer lassen, solange es ohne geht. openaipKey: optionaler openAIP-Schlüssel für die Luftraumkarte; steht dann öffentlich im Repo, daher besser in der App unter „Luftraum“ eintragen.",
+  "proxy": "",
+  "openaipKey": ""
+}
