@@ -172,9 +172,7 @@ a{color:var(--focus)}
 .facts dt{color:var(--muted)}
 .facts dd{margin:0;overflow-wrap:anywhere}
 .links{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14px}
-.wx{display:flex;flex-direction:column;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
-.wx .h{display:flex;align-items:center;gap:8px}
-.wx .h b{flex:1;min-width:0;font-weight:600}
+.wx{display:block}
 .wx .cat{flex:none;font:700 13px/1 var(--sign);padding:4px 6px;border-radius:4px;background:var(--c);color:#fff}
 @media (prefers-color-scheme:dark){.wx .cat{color:#101416}}
 .wx code{font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);overflow-wrap:anywhere}
@@ -188,8 +186,6 @@ a{color:var(--focus)}
 .row .d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .d small{display:block;color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis}
 .row .g{color:var(--muted);font-size:13px;white-space:nowrap}
-.sched{display:flex;flex-direction:column;gap:10px}
-.sched .sub{margin:2px 0 0}
 .sub{margin:2px 0 -4px;font:600 12px/1 var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .hint{color:var(--muted);margin:0}
 .check{display:flex;gap:8px;align-items:center}
@@ -216,10 +212,15 @@ nav button[aria-current="true"]{color:var(--fg);border-top-color:var(--fg)}
 .rowbtn{display:block;width:100%;text-align:left;background:none;border:0;color:inherit;font:inherit;cursor:pointer;border-radius:6px}
 .rowbtn:active{background:color-mix(in srgb,var(--line) 70%,transparent)}
 .rowbtn small{color:var(--accent,#6aa5ff)}
-details.fold{margin:8px 0 10px}
-details.fold>summary{cursor:pointer;padding:6px 0}
-details.fold[open]>summary{margin-bottom:6px}
-.wx details{margin-top:2px}
+/* Einheitliche Aufklapp-Zeilen im Flughafenblatt: Wetter, Abflüge, Ankünfte, Pisten, Frequenzen */
+details.fold{border-top:1px solid var(--line)}
+details.fold>summary{display:flex;align-items:center;gap:10px;padding:13px 0;cursor:pointer;list-style:none;font:600 12px/1.2 var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary::after{content:'';flex:none;width:7px;height:7px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(-45deg);transition:transform .15s}
+details.fold[open]>summary::after{transform:rotate(45deg)}
+details.fold>summary .sum{flex:1;min-width:0;text-align:right;text-transform:none;letter-spacing:0;font:400 14px/1.2 var(--ui);color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+details.fold>summary .sum .cat{margin-right:6px;vertical-align:1px}
+details.fold>.fb{display:flex;flex-direction:column;gap:8px;padding:0 0 12px}
 .wx summary{color:var(--muted);font-size:13px;cursor:pointer;padding:3px 0}
 .wx details[open] summary{margin-bottom:4px}
 /* Notebook und iPad im Querformat: Detailblatt rechts neben der Karte statt darunter, damit die Karte die volle Höhe behält */
@@ -1256,17 +1257,25 @@ async function paintPlaceWx(){
   if(!best){box.hidden=true;return;}
   wxCard(box,best.m,best.d>0?fmtKm(best.d)+' entfernt':'');
 }
-function wxCard(box,m,extra){
+/* Aufklapp-Zeile; der Zustand je Bereich wird auf dem Gerät gemerkt (persist=false: nur für diese Anzeige) */
+const FOLD=store.get('fold',{});
+function fold(key,title,sum,open,persist){
+  const d=el('details','fold'),s=el('summary'),t=el('span',null,title),m=el('span','sum',sum||''),b=el('div','fb');
+  s.append(t,m);d.append(s,b);d.open=open!=null?!!open:!!FOLD[key];
+  if(persist!==false)d.addEventListener('toggle',()=>{if(!!FOLD[key]!==d.open){FOLD[key]=d.open;store.set('fold',FOLD);}});
+  return{d,b,sum:m};
+}
+function wxCard(box,m,extra,forceOpen){
   const o=decodeMetar(m.raw),cat=m.cat||o.cat;
   box.replaceChildren();box.className='wx';box.hidden=false;
-  const h=el('div','h');
-  h.append(el('b',null,'Wetter '+m.id+(m.name?' · '+m.name:'')));
-  if(cat){const c=el('span','cat c-'+cat,cat);c.title=CATTXT[cat]||'';h.appendChild(c);}
-  box.appendChild(h);
-  box.appendChild(el('span',null,metarShort(o)||metarText(o)||'METAR ohne lesbare Angaben'));
-  box.appendChild(el('small','hint num','Beobachtung '+hhmm(m.t*1000)+', '+ago(nowSec()-m.t)+(extra?' · '+extra:'')+(m.file?' · gespeicherter Stand':'')));
-  const dt=el('details'),sm=el('summary',null,'Alle Angaben und METAR');
-  dt.append(sm,el('p','hint',metarText(o)),el('code',null,m.raw));box.appendChild(dt);
+  const f=fold('wx','Wetter '+m.id,'',forceOpen,forceOpen?false:undefined);
+  if(cat){const c=el('span','cat c-'+cat,cat);c.title=CATTXT[cat]||'';f.sum.append(c);}
+  f.sum.append(metarShort(o));
+  if(m.name)f.b.appendChild(el('b',null,m.name));
+  f.b.appendChild(el('span',null,metarText(o)||'METAR ohne lesbare Angaben'));
+  f.b.appendChild(el('small','hint num','Beobachtung '+hhmm(m.t*1000)+', '+ago(nowSec()-m.t)+(extra?' · '+extra:'')+(m.file?' · gespeicherter Stand':'')));
+  f.b.appendChild(el('code',null,m.raw));
+  box.appendChild(f.d);
 }
 let geoTimer=null;
 function renderPlacePicker(){
@@ -1496,36 +1505,40 @@ async function showFlight(f,ap){
 }
 function schedCard(host,a){
   if(!CFG.proxy||!a.iata)return;
-  const wrap=el('div','sched');
-  wrap.appendChild(el('p','sub','Flugplan'));
-  const bar=el('div','acts'),list=el('div');
-  let cur=null,start=0,rows=[];
-  const draw=async d=>{
+  for(const[d,l]of[['dep','Abflüge'],['arr','Ankünfte']])host.appendChild(schedBoard(a,d,l));
+}
+/* Eine Tafel (Abflüge oder Ankünfte) als Aufklapp-Zeile; geladen wird erst beim Aufklappen */
+function schedBoard(a,d,l){
+  const f=fold('s-'+d,l,''),list=el('div');f.b.appendChild(list);
+  let rows=[],start=0,loaded=false;
+  const draw=async()=>{
     const big=await loadBig();
-    if(cur!==d||!wrap.isConnected)return;
+    if(!f.d.isConnected)return;
     list.replaceChildren();
     const page=rows.slice(start,start+SCHED_PAGE);
     const mk=(txt,fn)=>{const b=el('button','btn',txt);b.type='button';b.onclick=fn;return b;};
-    if(start>0){const up=el('div','acts');up.appendChild(mk('↑ '+Math.min(SCHED_PAGE,start)+' frühere',()=>{start=Math.max(0,start-SCHED_PAGE);draw(d);}));list.appendChild(up);}
+    if(start>0){const up=el('div','acts');up.appendChild(mk('↑ '+Math.min(SCHED_PAGE,start)+' frühere',()=>{start=Math.max(0,start-SCHED_PAGE);draw();}));list.appendChild(up);}
     const ul=el('ul','rows num');
-    for(const f of page)ul.appendChild(schedRow(f,d,big,a));
+    for(const x of page)ul.appendChild(schedRow(x,d,big,a));
     list.append(ul);
-    if(start+SCHED_PAGE<rows.length){const dn=el('div','acts');dn.appendChild(mk('↓ '+Math.min(SCHED_PAGE,rows.length-start-SCHED_PAGE)+' spätere',()=>{start+=SCHED_PAGE;draw(d);}));list.appendChild(dn);}
+    if(start+SCHED_PAGE<rows.length){const dn=el('div','acts');dn.appendChild(mk('↓ '+Math.min(SCHED_PAGE,rows.length-start-SCHED_PAGE)+' spätere',()=>{start+=SCHED_PAGE;draw();}));list.appendChild(dn);}
     list.appendChild(el('p','hint','Zeiten in Ortszeit des Flughafens, Stand '+hhmm(schedCache.get(a.iata+'|'+d).at)+'. Quelle: AirLabs, ohne Gewähr.'));
   };
-  const show=async d=>{
-    cur=d;for(const b of bar.children)b.classList.toggle('pri',b.dataset.d===d);
+  const load=async()=>{
     list.replaceChildren(el('p','hint','Lade …'));
     const r=await loadSched(a.iata,d);
-    if(cur!==d||!wrap.isConnected)return;
-    if(r.err){list.replaceChildren(el('p','hint',r.err));return;}
-    if(!r.list.length){list.replaceChildren(el('p','hint','Keine Flüge gemeldet.'));return;}
+    if(!f.d.isConnected)return;
+    if(r.err){list.replaceChildren(el('p','hint',r.err));loaded=false;return;}
+    if(!r.list.length){list.replaceChildren(el('p','hint','Keine Flüge gemeldet.'));f.sum.textContent='keine';return;}
     const sp=schedSplit(r.list,d,Date.now());rows=sp.rows;start=sp.start;
     if(start>=rows.length)start=Math.max(0,rows.length-SCHED_PAGE);
-    draw(d);
+    const nx=rows[start];if(nx)f.sum.textContent='nächster '+((nx[d+'_time']||'').slice(11,16)||'–');
+    draw();
   };
-  for(const[d,l]of[['dep','Abflüge'],['arr','Ankünfte']]){const b=el('button','btn',l);b.type='button';b.dataset.d=d;b.onclick=()=>show(d);bar.appendChild(b);}
-  wrap.append(bar,list);host.appendChild(wrap);
+  const go=()=>{if(loaded)return;loaded=true;load();};
+  f.d.addEventListener('toggle',()=>{if(f.d.open)go();});
+  if(f.d.open)go();
+  return f.d;
 }
 async function renderNav(){
   const x=state.navSel;if(!x)return;
@@ -1559,21 +1572,22 @@ async function renderNav(){
   schedCard(body,a);
   const rw=t.r[a.ident]||[];
   if(rw.length){
-    body.appendChild(el('p','sub','Pisten'));
+    const lg=Math.max(...rw.map(r=>r[0]||0));
+    const f=fold('rwy','Pisten',rw.length+(rw.length>1?' Pisten':' Piste')+(lg?' · bis '+nf(Math.round(lg*FT),0)+' m':''));
     const ul=el('ul','rows num');
     for(const r of rw.slice().sort((p,q)=>(q[0]||0)-(p[0]||0))){
       const li=el('li'),d=el('div');d.style.padding='8px 0';
       d.append(el('b',null,[r[4],r[8]].filter(Boolean).join('/')||'Piste'),' · '+[r[0]?nf(Math.round(r[0]*FT),0)+' m'+(r[1]?' × '+nf(Math.round(r[1]*FT),0)+' m':''):'',surface(r[2]),r[3]?'befeuert':''].filter(Boolean).join(' · '));
       li.appendChild(d);ul.appendChild(li);
     }
-    body.appendChild(ul);
+    f.b.appendChild(ul);body.appendChild(f.d);
   }
   const fq=t.f[a.ident]||[];
   if(fq.length){
-    const dt=el('details','fold'),sm=el('summary','sub','Frequenzen ('+fq.length+')');
+    const f=fold('frq','Frequenzen',fq.length+(fq.length>1?' Frequenzen':' Frequenz'));
     const dl=el('dl','facts num');
-    for(const f of fq)dl.append(el('dt',null,f[0]),el('dd',null,nf(f[2],3)+' MHz'+(f[1]?' · '+f[1]:'')));
-    dt.append(sm,dl);body.appendChild(dt);
+    for(const q of fq)dl.append(el('dt',null,q[0]),el('dd',null,nf(q[2],3)+' MHz'+(q[1]?' · '+q[1]:'')));
+    f.b.appendChild(dl);body.appendChild(f.d);
   }
   const acts=el('div','acts');
   const mk=el('button','btn pri','Als Mein Ort');mk.type='button';mk.onclick=()=>{setPlace(placeOfApt(a));setTab('pass',true);openSheet('pass');};
@@ -1636,7 +1650,7 @@ async function renderWx(){
   const b=$('shBadge');b.hidden=false;b.className='badge c-apt';b.textContent=m.id;
   $('shTitle').replaceChildren(el('span',null,'Wetter '),m.name||m.id);
   const body=$('shBody');body.replaceChildren();
-  const box=el('div','wx');body.appendChild(box);wxCard(box,m,'');
+  const box=el('div','wx');body.appendChild(box);wxCard(box,m,'',true);
   const big=await loadBig(),a=big.find(x=>x.icao===m.id);
   const acts=el('div','acts');
   if(a){const o=el('button','btn','Flughafen');o.type='button';o.onclick=()=>openNav({kind:'apt',a});acts.appendChild(o);}
