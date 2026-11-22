@@ -3,6 +3,10 @@
 Neue Funktionen und Korrekturen am Flugradar. Neueste Einträge oben.
 Die Seite liest diese Datei selbst und zeigt nach einem Update einmalig einen Hinweis an.
 
+## 2026-11-23
+
+- Flughafenblatt: mehr Abstand um den Frequenzen-Block
+
 ## 2026-11-22
 
 - Flughafenblatt: Der Flugplan steht jetzt direkt unter dem Wetter, Pisten folgen darunter, die Frequenzen sind eingeklappt

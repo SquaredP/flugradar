@@ -216,7 +216,9 @@ nav button[aria-current="true"]{color:var(--fg);border-top-color:var(--fg)}
 .rowbtn{display:block;width:100%;text-align:left;background:none;border:0;color:inherit;font:inherit;cursor:pointer;border-radius:6px}
 .rowbtn:active{background:color-mix(in srgb,var(--line) 70%,transparent)}
 .rowbtn small{color:var(--accent,#6aa5ff)}
-details.fold>summary{cursor:pointer}
+details.fold{margin:8px 0 10px}
+details.fold>summary{cursor:pointer;padding:6px 0}
+details.fold[open]>summary{margin-bottom:6px}
 .wx details{margin-top:2px}
 .wx summary{color:var(--muted);font-size:13px;cursor:pointer;padding:3px 0}
 .wx details[open] summary{margin-bottom:4px}
