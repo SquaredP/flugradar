@@ -895,6 +895,7 @@ async function openAptOf(a){
   const full=big.find(y=>(a.icao&&y.icao===a.icao)||(a.iata&&y.iata===a.iata))||
     (isFinite(a.lat)&&isFinite(a.lon)?{ident:a.icao||a.iata,icao:a.icao,iata:a.iata,name:a.name||apLabel(a),city:a.city,lat:a.lat,lon:a.lon,elev:0,type:'L',cc:a.cc}:null);
   if(!full)return;
+  clearSel();/* Verfolgung des Flugzeugs beenden, die Karte gehört jetzt dem Flughafen */
   setTab('map',true);openNav({kind:'apt',a:full});
   if(isFinite(full.lat)&&isFinite(full.lon))map.setView([full.lat,full.lon],Math.max(map.getZoom(),9));
 }

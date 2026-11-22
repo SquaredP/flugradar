@@ -5,7 +5,7 @@ Die Seite liest diese Datei selbst und zeigt nach einem Update einmalig einen Hi
 
 ## 2026-11-22
 
-- Start und Ziel in der Flugzeug-Karte sind antippbar: Ein Tipp öffnet das Flughafenblatt mit Piste, Frequenzen und Flugplan, die Karte springt zum Flughafen
+- Start und Ziel in der Flugzeug-Karte sind antippbar: Ein Tipp öffnet das Flughafenblatt mit Piste, Frequenzen und Flugplan, die Karte springt zum Flughafen. Dabei endet die Verfolgung des Flugzeugs
 
 ## 2026-11-21
 
