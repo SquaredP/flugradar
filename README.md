@@ -43,6 +43,16 @@ Die Seite fragt diese freien Dienste der Reihe nach und nimmt den ersten, der an
 
 Diese Dienste sind für Abfragen von Servern gebaut. Ob sie Abfragen **direkt aus dem Browser** zulassen (CORS), legen sie selbst fest, und das kann sich ändern; adsb.fi zum Beispiel lässt es nicht zu und fehlt deshalb. Steht oben „Keine Flugdatenquelle erreichbar“, hilft der eigene Vermittler.
 
+### Flugplan mit Uhrzeiten (AirLabs, optional)
+
+Öffnet man einen Flughafen und tippt „Abflüge“ oder „Ankünfte“, zeigt die Seite den Flugplan mit Zeiten, Verspätung und Status, sofern der Anbieter sie im Gratis-Tarif liefert. Er kommt von [AirLabs](https://airlabs.co) über den Vermittler; der Schlüssel liegt als Geheimnis im Worker und nie in der Seite. Ohne Schlüssel zeigt die Seite einen Hinweis und alles andere funktioniert wie bisher.
+
+1. Auf [airlabs.co](https://airlabs.co) kostenlos registrieren und im Dashboard den API-Schlüssel kopieren (Gratis-Tarif: persönliche Nutzung, begrenztes Kontingent und höchstens 50 Flüge je Abfrage).
+2. In Cloudflare den Worker öffnen → *Edit code* → den aktuellen Inhalt von [`proxy/worker.js`](proxy/worker.js) einfügen → *Deploy*.
+3. *Settings → Variables and Secrets → Add*, Typ **Secret**, Name `AIRLABS_KEY`, Wert der Schlüssel → *Deploy*.
+
+Der Worker speichert Antworten 10 Minuten und gibt nur den Flugplan weiter, nie den Schlüssel.
+
 ### Eigener Vermittler (nur nötig, wenn keine Quelle antwortet)
 
 Ein kleines Skript bei Cloudflare Workers (kostenloser Tarif, 100.000 Anfragen am Tag) holt die Daten bei adsb.lol oder airplanes.live ab und gibt sie mit dem nötigen CORS-Kopf an die Seite weiter. Es speichert nichts und leitet nur freigegebene Pfade weiter (Flugzeuge im Umkreis, Suche nach Kennung, METAR).
@@ -86,11 +96,12 @@ python3 -m http.server       # dann http://localhost:8000 öffnen
 
 ## Datenschutz
 
-Kein Konto, keine Cookies, kein Tracking, kein eigener Server. Mein Ort, Filter, Kartenausschnitt, gemerkte Flüge und ein openAIP-Schlüssel bleiben im Browser. Beim Benutzen sehen der Vermittler bei Cloudflare und dahinter adsb.lol oder airplanes.live (Mittelpunkt und Radius des Ausschnitts, gesuchte und gemerkte Flüge), adsb.lol und adsbdb.com (Rufzeichen und Transpondercode des angetippten Flugzeugs), aviationweather.gov (Kartenausschnitt für METAR), Nominatim (Ortssuche), Esri und optional openAIP (Kartenkacheln) sowie GitHub Pages (Auslieferung) die IP-Adresse. Details stehen in der App unter „Meine Flüge“ → „Über Flugradar“.
+Kein Konto, keine Cookies, kein Tracking, kein eigener Server. Mein Ort, Filter, Kartenausschnitt, gemerkte Flüge und ein openAIP-Schlüssel bleiben im Browser. Beim Benutzen sehen der Vermittler bei Cloudflare und dahinter adsb.lol oder airplanes.live (Mittelpunkt und Radius des Ausschnitts, gesuchte und gemerkte Flüge), AirLabs (IATA-Code des geöffneten Flughafens, über den Vermittler), adsb.lol und adsbdb.com (Rufzeichen und Transpondercode des angetippten Flugzeugs), aviationweather.gov (Kartenausschnitt für METAR), Nominatim (Ortssuche), Esri und optional openAIP (Kartenkacheln) sowie GitHub Pages (Auslieferung) die IP-Adresse. Details stehen in der App unter „Meine Flüge“ → „Über Flugradar“.
 
 ## Daten und Nutzungsbedingungen
 
 - Flugdaten: [adsb.lol](https://adsb.lol), [airplanes.live](https://airplanes.live/api-guide/) (nicht-kommerziell), beide gemeinschaftlich betrieben und über den eigenen Vermittler (Cloudflare Workers) abgefragt; bitte nicht übermäßig belasten.
+- Flugpläne: [AirLabs](https://airlabs.co), Gratis-Tarif für persönliche Nutzung; Zeiten ohne Gewähr.
 - Routen: adsb.lol (aus [vradarserver standing-data](https://github.com/vradarserver/standing-data)), Rückfall [adsbdb.com](https://www.adsbdb.com). Flugzeugdaten: adsbdb.com.
 - Flugplätze, Pisten, Frequenzen, Funkfeuer: [OurAirports](https://ourairports.com/data/), gemeinfrei. Nicht amtlich.
 - Flugwetter: [NOAA Aviation Weather Center](https://aviationweather.gov/data/api/), gemeinfrei.
