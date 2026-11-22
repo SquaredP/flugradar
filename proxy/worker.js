@@ -34,7 +34,7 @@ async function pass(url, ttl, origin) {
 // (Settings → Variables and Secrets) und gelangt nie in die Seite. Antworten werden 10 Minuten zwischengespeichert,
 // damit das kleine Gratis-Kontingent reicht. AirLabs spiegelt in der Antwort den Schlüssel zurück ("request"),
 // deshalb wird nur "response" weitergegeben.
-const SCHED_FIELDS = 'flight_iata,airline_iata,dep_iata,arr_iata,dep_time,arr_time,dep_estimated,arr_estimated,status,dep_terminal,arr_terminal,dep_gate,arr_gate,cs_flight_iata,cs_airline_iata,delayed,dep_delayed,arr_delayed';
+const SCHED_FIELDS = 'flight_iata,airline_iata,dep_iata,arr_iata,dep_time,arr_time,dep_time_utc,arr_time_utc,dep_estimated,arr_estimated,status,dep_terminal,arr_terminal,dep_gate,arr_gate,cs_flight_iata,cs_airline_iata,delayed,dep_delayed,arr_delayed';
 async function schedule(u, env, origin) {
   const ap = u.searchParams.get('airport') || '', dir = u.searchParams.get('dir') || '';
   if (!/^[A-Z]{3}$/.test(ap) || !/^(dep|arr)$/.test(dir)) return new Response('airport (IATA) oder dir fehlt', { status: 400, headers: cors(origin) });

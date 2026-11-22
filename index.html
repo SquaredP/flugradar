@@ -186,6 +186,8 @@ a{color:var(--focus)}
 .row .d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .d small{display:block;color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis}
 .row .g{color:var(--muted);font-size:13px;white-space:nowrap}
+.sched{display:flex;flex-direction:column;gap:10px}
+.sched .sub{margin:2px 0 0}
 .sub{margin:2px 0 -4px;font:600 12px/1 var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .hint{color:var(--muted);margin:0}
 .check{display:flex;gap:8px;align-items:center}
@@ -1387,25 +1389,42 @@ function schedRow(f,d,big){
   if(sub){const sm=el('small',null,sub);sm.style.display='block';dv.appendChild(sm);}
   li.appendChild(dv);return li;
 }
+const SCHED_PAGE=5;
+/* Zeitpunkt eines Flugs in ms: UTC-Zeit des Anbieters, sonst Ortszeit-Text als Zeit des Geräts gelesen */
+function schedTs(f,d){
+  const u=f[d+'_time_utc'],v=u?Date.parse(String(u).replace(' ','T')+(/[zZ]|[+-]\d\d:?\d\d$/.test(u)?'':'Z')):Date.parse(String(f[d+'_time']||'').replace(' ','T'));
+  return isNaN(v)?0:v;
+}
 function schedCard(host,a){
   if(!CFG.proxy||!a.iata)return;
   const wrap=el('div','sched');
   wrap.appendChild(el('p','sub','Flugplan'));
   const bar=el('div','acts'),list=el('div');
-  let cur=null;
+  let cur=null,start=0,rows=[];
+  const draw=async d=>{
+    const big=await loadBig();
+    if(cur!==d||!wrap.isConnected)return;
+    list.replaceChildren();
+    const page=rows.slice(start,start+SCHED_PAGE);
+    const mk=(txt,fn)=>{const b=el('button','btn',txt);b.type='button';b.onclick=fn;return b;};
+    if(start>0){const up=el('div','acts');up.appendChild(mk('↑ '+Math.min(SCHED_PAGE,start)+' frühere',()=>{start=Math.max(0,start-SCHED_PAGE);draw(d);}));list.appendChild(up);}
+    const ul=el('ul','rows num');
+    for(const f of page)ul.appendChild(schedRow(f,d,big));
+    list.append(ul);
+    if(start+SCHED_PAGE<rows.length){const dn=el('div','acts');dn.appendChild(mk('↓ '+Math.min(SCHED_PAGE,rows.length-start-SCHED_PAGE)+' spätere',()=>{start+=SCHED_PAGE;draw(d);}));list.appendChild(dn);}
+    list.appendChild(el('p','hint','Zeiten in Ortszeit des Flughafens, Stand '+hhmm(schedCache.get(a.iata+'|'+d).at)+'. Quelle: AirLabs, ohne Gewähr.'));
+  };
   const show=async d=>{
     cur=d;for(const b of bar.children)b.classList.toggle('pri',b.dataset.d===d);
     list.replaceChildren(el('p','hint','Lade …'));
     const r=await loadSched(a.iata,d);
     if(cur!==d||!wrap.isConnected)return;
-    list.replaceChildren();
-    if(r.err){list.appendChild(el('p','hint',r.err));return;}
-    if(!r.list.length){list.appendChild(el('p','hint','Keine Flüge gemeldet.'));return;}
-    const big=await loadBig();
-    if(cur!==d||!wrap.isConnected)return;
-    const ul=el('ul','rows num');
-    for(const f of r.list.slice().sort((p,q)=>String(p[d+'_time']).localeCompare(String(q[d+'_time']))).slice(0,50))ul.appendChild(schedRow(f,d,big));
-    list.append(ul,el('p','hint','Zeiten in Ortszeit des Flughafens, Stand '+hhmm(r.at)+'. Quelle: AirLabs, ohne Gewähr.'));
+    if(r.err){list.replaceChildren(el('p','hint',r.err));return;}
+    if(!r.list.length){list.replaceChildren(el('p','hint','Keine Flüge gemeldet.'));return;}
+    rows=r.list.slice().sort((p,q)=>schedTs(p,d)-schedTs(q,d)||String(p.flight_iata).localeCompare(String(q.flight_iata)));
+    const from=Date.now()-15*60000;
+    start=rows.findIndex(f=>schedTs(f,d)>=from);if(start<0)start=Math.max(0,rows.length-SCHED_PAGE);
+    draw(d);
   };
   for(const[d,l]of[['dep','Abflüge'],['arr','Ankünfte']]){const b=el('button','btn',l);b.type='button';b.dataset.d=d;b.onclick=()=>show(d);bar.appendChild(b);}
   wrap.append(bar,list);host.appendChild(wrap);
