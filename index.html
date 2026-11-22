@@ -1440,12 +1440,12 @@ async function loadSched(iata,dir){
   catch(e){r={at:Date.now()-540000,err:e.status===501?'Der Flugplan ist im Vermittler noch nicht eingerichtet (API-Schlüssel fehlt).':'Flugplan gerade nicht erreichbar'+(e.status?' (HTTP '+e.status+')':'')+'.'};}
   schedCache.set(k,r);return r;
 }
-function schedRow(f,d,big){
+function schedRow(f,d,big,a){
   const t=f[d+'_time']||'',e=f[d+'_estimated']||'',other=f[(d==='dep'?'arr':'dep')+'_iata']||'';
   const o=big.find(x=>x.iata===other),al=f.airline_iata&&AL.iata[f.airline_iata]?AL.icao[AL.iata[f.airline_iata]].name:'';
   const no=f.flight_iata?f.flight_iata.replace(/^([A-Z0-9]{2})(\d)/,'$1 $2'):'';
   const air=f.status==='active'&&!!f.flight_iata,li=el('li'),dv=el(air?'button':'div',air?'rowbtn':null);dv.style.padding='8px 0';
-  if(air){dv.type='button';dv.onclick=()=>showFlight(f);}
+  if(air){dv.type='button';dv.onclick=()=>showFlight(f,a);}
   const tm=el('b',null,t.slice(11,16)||'–');
   const late=e&&e.slice(11,16)!==t.slice(11,16)?' → '+e.slice(11,16):'';
   const bits=[no,al].filter(Boolean).join(' · ');
@@ -1458,16 +1458,39 @@ function schedRow(f,d,big){
 }
 const SCHED_PAGE=5;
 /* Flug aus dem Flugplan auf der Karte zeigen: erst unter den bekannten Flugzeugen suchen, sonst per Rufzeichen nachfragen */
-async function showFlight(f){
+/* Rufzeichen und Flugnummer stimmen oft nicht überein (Codeshare, andere Fluggesellschaft fliegt). Darum zuerst die Rufzeichen-Kandidaten, dann alle Flugzeuge
+   in der Nähe des Flughafens, deren Route laut Datenbank genau von Start- zu Zielflughafen des Flugs führt. */
+async function lookupPoint(lat,lon,nm){
+  const now=nowSec();
+  for(const p of PROV){
+    if(!provOk(p)||!p.v2)continue;
+    try{const j=await getJSON(p.base()+'/v2/point/'+lat.toFixed(3)+'/'+lon.toFixed(3)+'/'+nm);return(j.ac||[]).map(x=>fromV2(x,now)).filter(Boolean);}
+    catch(e){pfail[p.id]={at:Date.now(),wait:failWait(e,p),msg:e.message};}
+  }
+  return[];
+}
+async function showFlight(f,ap){
+  note('Suche Flug '+(f.flight_iata||'')+' …',false,15000);
   const cands=[[f.cs_airline_iata,f.cs_flight_iata],[f.airline_iata,f.flight_iata]].filter(c=>c[0]&&c[1]).map(c=>({al:c[0],no:String(c[1]).replace(/\s/g,'')}));
   const same=p=>{const n=flightNo(p.cs).replace(' ','');return n&&cands.some(c=>c.no===n);};
+  const go=p=>{state.note=null;state.planes.set(p.h,merge(p,planeBy(p.h)));selectPlane(p.h,true);};
   let hit=null;for(const p of allPlanes())if(same(p)){hit=p;break;}
-  if(!hit){
-    for(const c of cands){const ic=AL.iata[c.al],num=c.no.slice(c.al.length);if(!ic||!num)continue;
-      try{const got=await lookup('callsign',[ic+num]);if(got.length){hit=got[0];state.planes.set(hit.h,merge(hit,planeBy(hit.h)));break;}}catch(e){}}
-  }
-  if(!hit){note('Flug '+cands[0].no+' wird gerade nicht empfangen.',true,6000);return;}
-  selectPlane(hit.h,true);
+  if(hit)return go(hit);
+  const css=[];for(const x of [f.cs_flight_icao,f.flight_icao])if(x)css.push(String(x));
+  for(const c of cands){const ic=AL.iata[c.al],num=c.no.slice(c.al.length);if(ic&&num)css.push(ic+num);}
+  if(css.length)try{const got=await lookup('callsign',[...new Set(css)]);if(got.length)return go(got[0]);}catch(e){}
+  /* Rückfall: Flugzeuge rund um den Flughafen, Route per Datenbank prüfen */
+  const dep=f.dep_iata,arr=f.arr_iata;
+  const near=list=>list.filter(p=>p.cs&&!p.gnd&&p.alt!=null&&(!ap||dist([p.lat,p.lon],[ap.lat,ap.lon])<900000)).sort((a,b)=>(ap?dist([a.lat,a.lon],[ap.lat,ap.lon])-dist([b.lat,b.lon],[ap.lat,ap.lon]):0)).slice(0,24);
+  const tryRoutes=async list=>{
+    const rs=await Promise.all(near(list).map(async p=>({p,r:await routeOne(p.cs,[p.lat,p.lon])})));
+    const ok=rs.filter(x=>x.r&&x.r.ok&&x.r.o&&x.r.d&&x.r.o.iata===dep&&x.r.d.iata===arr);
+    return ok.length===1?ok[0].p:null;
+  };
+  hit=await tryRoutes([...allPlanes()]);
+  if(!hit&&ap){const more=await lookupPoint(ap.lat,ap.lon,250);for(const p of more)if(!state.planes.has(p.h)&&!state.extra.has(p.h))state.extra.set(p.h,p);hit=await tryRoutes(more);}
+  if(hit)return go(hit);
+  note('Flug '+cands[0].no+' ist gerade nicht eindeutig zu finden (noch zu weit entfernt oder sendet nicht).',true,8000);
 }
 function schedCard(host,a){
   if(!CFG.proxy||!a.iata)return;
@@ -1483,7 +1506,7 @@ function schedCard(host,a){
     const mk=(txt,fn)=>{const b=el('button','btn',txt);b.type='button';b.onclick=fn;return b;};
     if(start>0){const up=el('div','acts');up.appendChild(mk('↑ '+Math.min(SCHED_PAGE,start)+' frühere',()=>{start=Math.max(0,start-SCHED_PAGE);draw(d);}));list.appendChild(up);}
     const ul=el('ul','rows num');
-    for(const f of page)ul.appendChild(schedRow(f,d,big));
+    for(const f of page)ul.appendChild(schedRow(f,d,big,a));
     list.append(ul);
     if(start+SCHED_PAGE<rows.length){const dn=el('div','acts');dn.appendChild(mk('↓ '+Math.min(SCHED_PAGE,rows.length-start-SCHED_PAGE)+' spätere',()=>{start+=SCHED_PAGE;draw(d);}));list.appendChild(dn);}
     list.appendChild(el('p','hint','Zeiten in Ortszeit des Flughafens, Stand '+hhmm(schedCache.get(a.iata+'|'+d).at)+'. Quelle: AirLabs, ohne Gewähr.'));
