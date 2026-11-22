@@ -202,6 +202,20 @@ nav{position:relative;z-index:600;display:grid;grid-template-columns:repeat(3,1f
   padding-bottom:env(safe-area-inset-bottom,0px)}
 nav button{background:none;border:0;padding:11px 4px 10px;font-weight:500;color:var(--muted);border-top:3px solid transparent}
 nav button[aria-current="true"]{color:var(--fg);border-top-color:var(--fg)}
+/* Handy: Detailblatt in drei Stufen (kompakt, halb, voll) per Ziehgriff; solange es offen ist, geben Filterleiste und Statuszeile der Karte den Platz zurück */
+.sheet .grab{display:none}
+@media not all and (min-width:900px) and (min-height:520px) and (orientation:landscape){
+  .sheet{transition:max-height .22s ease}
+  .sheet[data-snap=peek]{max-height:max(34dvh,190px)}
+  .sheet[data-snap=full]{max-height:88dvh}
+  .sheet .grab{display:block;width:100%;height:22px;margin:0;padding:0;background:none;border:0;touch-action:none;flex:none}
+  .sheet .grab span{display:block;width:40px;height:4px;border-radius:2px;background:var(--line);margin:9px auto 0}
+  .sheet header{padding-top:2px}
+  #app:has(.sheet:not([hidden])) .chips,#app:has(.sheet:not([hidden])) .status{display:none}
+}
+.wx details{margin-top:2px}
+.wx summary{color:var(--muted);font-size:13px;cursor:pointer;padding:3px 0}
+.wx details[open] summary{margin-bottom:4px}
 /* Notebook und iPad im Querformat: Detailblatt rechts neben der Karte statt darunter, damit die Karte die volle Höhe behält */
 @media (min-width:900px) and (min-height:520px) and (orientation:landscape){
   #app{display:grid;grid-template-columns:minmax(0,1fr) clamp(360px,34vw,460px);grid-template-rows:minmax(0,1fr) auto}
@@ -240,7 +254,8 @@ nav button[aria-current="true"]{color:var(--fg);border-top-color:var(--fg)}
 
   <div id="map"></div>
 
-  <section class="sheet" id="sheet" hidden>
+  <section class="sheet" id="sheet" hidden data-snap="half">
+    <button class="grab" id="shGrab" type="button" aria-label="Blatt größer oder kleiner machen"><span></span></button>
     <header><span class="badge" id="shBadge" hidden></span><h2 id="shTitle"></h2><button class="x" id="shClose" type="button">Schließen</button></header>
     <div class="body" id="shBody"></div>
   </section>
@@ -468,6 +483,15 @@ function metarText(o){
   if(o.t!=null)out.push(o.t+' °C'+(o.dp!=null?', Taupunkt '+o.dp+' °C':''));
   if(o.qnh)out.push('QNH '+o.qnh+' hPa');
   return out.join(' · ');
+}
+/* Kurzfassung für die Wetterkarte: Wind, Wetter, Temperatur, Druck; der Rest steht unter „Alle Angaben“ */
+function metarShort(o){
+  const out=[];
+  if(o.wind){const w=o.wind;out.push(w.kt===0?'Windstill':'Wind '+(w.dir==null?'umlaufend':String(w.dir).padStart(3,'0')+'°')+' '+w.kt+' kt'+(w.g?', Böen '+w.g+' kt':''));}
+  if(o.wx.length)out.push(o.wx.join(', '));
+  if(o.t!=null)out.push(o.t+' °C');
+  if(o.qnh)out.push('QNH '+o.qnh);
+  return out.length>1?out.join(' · '):'';
 }
 const CATTXT={VFR:'Sichtflug',MVFR:'Sichtflug eingeschränkt',IFR:'Instrumentenflug',LIFR:'Instrumentenflug, sehr schlecht'};
 /* Überlappende Namen ausblenden (wie Zugradar). Reihenfolge = Priorität. */
@@ -1214,9 +1238,10 @@ function wxCard(box,m,extra){
   h.append(el('b',null,'Wetter '+m.id+(m.name?' · '+m.name:'')));
   if(cat){const c=el('span','cat c-'+cat,cat);c.title=CATTXT[cat]||'';h.appendChild(c);}
   box.appendChild(h);
-  box.appendChild(el('span',null,metarText(o)||'METAR ohne lesbare Angaben'));
+  box.appendChild(el('span',null,metarShort(o)||metarText(o)||'METAR ohne lesbare Angaben'));
   box.appendChild(el('small','hint num','Beobachtung '+hhmm(m.t*1000)+', '+ago(nowSec()-m.t)+(extra?' · '+extra:'')+(m.file?' · gespeicherter Stand':'')));
-  box.appendChild(el('code',null,m.raw));
+  const dt=el('details'),sm=el('summary',null,'Alle Angaben und METAR');
+  dt.append(sm,el('p','hint',metarText(o)),el('code',null,m.raw));box.appendChild(dt);
 }
 let geoTimer=null;
 function renderPlacePicker(){
@@ -1710,8 +1735,24 @@ $('newsOpen').onclick=()=>openSheet('news');
 $('newsX').onclick=markNewsSeen;
 
 /* ---------- Blatt und Reiter ---------- */
+/* Stufen des Blattes auf dem Handy: kompakt, halb, voll. Beim Öffnen kompakt, nur das Flugzeugblatt halb. */
+const SNAPS=['peek','half','full'];
+function setSnap(sn){$('sheet').dataset.snap=sn;map.invalidateSize();setTimeout(()=>map.invalidateSize(),260);}
+(()=>{
+  const g=$('shGrab');let y0=null,moved=false;
+  g.addEventListener('pointerdown',e=>{y0=e.clientY;moved=false;try{g.setPointerCapture(e.pointerId)}catch(_){}});
+  g.addEventListener('pointermove',e=>{if(y0!=null&&Math.abs(e.clientY-y0)>8)moved=true;});
+  g.addEventListener('pointerup',e=>{
+    if(y0==null)return;const dy=y0-e.clientY;y0=null;
+    const i=SNAPS.indexOf($('sheet').dataset.snap);
+    if(!moved)setSnap(SNAPS[(i+1)%3]);
+    else setSnap(SNAPS[Math.max(0,Math.min(2,i+(dy>0?1:-1)))]);
+  });
+  g.addEventListener('pointercancel',()=>{y0=null;});
+})();
 function openSheet(kind){
   closeMenu();
+  if(state.sheet!==kind)$('sheet').dataset.snap=kind==='plane'?'half':'peek';
   state.sheet=kind;$('sheet').hidden=false;$('shBadge').hidden=true;
   if(kind==='plane')renderPlaneSheet();
   if(kind==='pass')renderPass();
