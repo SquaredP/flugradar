@@ -5,6 +5,9 @@ Die Seite liest diese Datei selbst und zeigt nach einem Update einmalig einen Hi
 
 ## 2026-11-22
 
+- Flughafenblatt: Der Flugplan steht jetzt direkt unter dem Wetter, Pisten folgen darunter, die Frequenzen sind eingeklappt
+- Flugplan: Schon gelandete Flüge stehen nicht mehr unter den nächsten fünf. Bei Flughäfen in anderen Zeitzonen entscheidet der Status des Flugs, nicht die Uhr des Geräts
+- Flüge mit dem Status „in der Luft“ sind antippbar: Die Karte springt zum Flugzeug und verfolgt es
 - Handy: Das Detailblatt öffnet kompakt und lässt sich über den Griff oben (antippen oder ziehen) auf halbe und volle Höhe bringen. Solange es offen ist, blenden sich Filterleiste und Statuszeile aus, die Karte bleibt größer sichtbar
 - Wetterkarte kürzer: eine Zeile mit Wind, Temperatur und Druck, alle Angaben und der METAR-Text klappen auf Tipp auf
 - Start und Ziel in der Flugzeug-Karte sind antippbar: Ein Tipp öffnet das Flughafenblatt mit Piste, Frequenzen und Flugplan, die Karte springt zum Flughafen. Dabei endet die Verfolgung des Flugzeugs
