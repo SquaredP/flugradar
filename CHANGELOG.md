@@ -5,6 +5,7 @@ Die Seite liest diese Datei selbst und zeigt nach einem Update einmalig einen Hi
 
 ## 2026-11-21
 
+- Notebook und iPad im Querformat: Das Detailblatt (Flug, Flughafen, Mein Ort, Meine Flüge) erscheint rechts neben der Karte, sodass die Karte die volle Höhe behält. Auf dem Handy bleibt alles wie bisher.
 - Neu: Flugplan mit Uhrzeiten. Im Flughafenblatt zeigen „Abflüge“ und „Ankünfte“ die geplanten Flüge, Verspätungen und gestrichene Flüge (Quelle AirLabs, braucht einen Schlüssel im Vermittler).
 - Erste Version: Live-Karte mit Flugzeugen aus offenen ADS-B-Netzwerken (adsb.lol, airplanes.live). Die Silhouette zeigt die Art und dreht sich in Flugrichtung, am Namen steht die Höhe
 - Filter nach Verkehrsflugzeugen, Allgemeiner Luftfahrt, Hubschraubern, Militär und Segelflug, Flugzeuge am Boden zuschaltbar. Suche nach Flugnummer, Kennzeichen, Typ oder Transpondercode, Enter sucht weltweit
