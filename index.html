@@ -224,7 +224,7 @@ nav button[aria-current="true"]{color:var(--fg);border-top-color:var(--fg)}
     </div>
     <div class="chips" id="chips">
       <button class="chip" id="typeBtn" type="button" aria-haspopup="true" aria-expanded="false"><span id="typeTxt">Typen</span> ▾</button>
-      <button class="chip c-nav" id="navChip" type="button" aria-pressed="true"><i></i>Navigation</button>
+      <button class="chip c-nav" id="navChip" type="button" aria-pressed="true" aria-haspopup="true" aria-expanded="false"><i></i><span id="navTxt">Navigation</span> ▾</button>
       <button class="chip c-wx" id="wxChip" type="button" aria-pressed="true"><i></i>Wetter</button>
       <button class="chip c-aip" id="aipChip" type="button" aria-pressed="false"><i></i>Luftraum</button>
       <input class="lineq" id="planeQ" type="search" placeholder="Flug, Kennz., Typ" enterkeyhint="search" autocomplete="off" aria-label="Nach Flug, Kennzeichen, Typ oder Hex-Code filtern">
@@ -398,6 +398,11 @@ function navFreq(type,khz){
 const NAVTYPE={'VOR':'VOR (UKW-Drehfunkfeuer)','VOR-DME':'VOR mit DME','VORTAC':'VORTAC (VOR mit militärischem TACAN)','TACAN':'TACAN (militärisch)','DME':'DME (Entfernungsmessung)','NDB':'NDB (ungerichtetes Funkfeuer)','NDB-DME':'NDB mit DME'};
 const USAGE={HI:'oberer Luftraum',LO:'unterer Luftraum',BOTH:'oberer und unterer Luftraum',TERMINAL:'Flughafennähe',RNAV:'Flächennavigation'};
 const APTTYPE={L:'Großer Verkehrsflughafen',M:'Flughafen',S:'Flugplatz',H:'Hubschrauberlandeplatz',W:'Wasserflugplatz'};
+/* Navigationspunkte nach Art zuschaltbar: Flugplätze nach Größe und Funkfeuer nach Familie */
+const NAVT=[['L','Große Verkehrsflughäfen','c-apt'],['M','Flughäfen','c-apt'],['S','Flugplätze und Landeplätze','c-apt'],['H','Hubschrauberlandeplätze','c-apt'],['W','Wasserflugplätze','c-apt'],
+  ['VOR','VOR, VORTAC, TACAN','c-nav'],['DME','DME (Entfernungsmessung)','c-nav'],['NDB','NDB (ungerichtete Funkfeuer)','c-nav']];
+const NAVT_KEYS=NAVT.map(x=>x[0]);
+const navGroup=t=>/VOR|TACAN/.test(t)?'VOR':/NDB/.test(t)?'NDB':'DME';
 function surface(s){
   const u=String(s||'').toUpperCase();
   if(/^(ASP|ASPH|BIT|TAR|PEM)/.test(u))return 'Asphalt';if(/^CON/.test(u))return 'Beton';if(/^(GRS|GRASS|TURF|GRE)/.test(u))return 'Gras';
@@ -538,7 +543,7 @@ async function getJSON(url,opt){
 const CFG={proxy:'',openaipKey:''};
 const state={
   cats:new Set(store.get('cats',CAT_ORDER)),gnd:store.get('gnd',false),
-  nav:store.get('nav',true),wx:store.get('wx',true),aip:store.get('aip',false),
+  navT:new Set(store.get('nav',true)===false?[]:store.get('navt',NAVT_KEYS)),wx:store.get('wx',true),aip:store.get('aip',false),
   place:store.get('place',null),favs:store.get('favs',[]),
   onlyPlace:false,placeSet:new Set(),
   query:'',queryRaw:'',found:[],
@@ -1314,7 +1319,7 @@ const navLayer=L.layerGroup().addTo(map),rwyLayer=L.layerGroup().addTo(map),navM
 let navSeq=0;
 async function paintNav(){
   const seq=++navSeq,z=map.getZoom();
-  if(!state.nav||z<6){navLayer.clearLayers();rwyLayer.clearLayers();navMarks.clear();return;}
+  if(!state.navT.size||z<6){navLayer.clearLayers();rwyLayer.clearLayers();navMarks.clear();return;}
   const b=map.getBounds().pad(.15),want=new Map();
   const big=await loadBig();
   const keys=z>=7?tileKeys(b):[];
@@ -1323,18 +1328,18 @@ async function paintNav(){
   const rwys={};for(const t of ts)Object.assign(rwys,t.r);
   const add=(key,ll,html,label,cls,onclick)=>{want.set(key,{ll,html,label,cls,onclick});};
   for(const a of big){
-    if((a.type==='M'&&z<7)||!b.contains([a.lat,a.lon]))continue;
+    if(!state.navT.has(a.type)||(a.type==='M'&&z<7)||!b.contains([a.lat,a.lon]))continue;
     const hdg=z>=9?mainRwyHdg(rwys[a.ident]):null;
     add('a:'+a.ident,[a.lat,a.lon],aptSvg(a.type,hdg),z>=(a.type==='L'?8:9)?(a.icao||a.ident):'','c-apt',()=>openNav({kind:'apt',a}));
   }
   for(const t of ts){
     if(z>=10)for(const r of t.a){
-      const a=apObj(r);if((a.type==='H'&&z<11)||!b.contains([a.lat,a.lon]))continue;
+      const a=apObj(r);if(!state.navT.has(a.type)||(a.type==='H'&&z<11)||!b.contains([a.lat,a.lon]))continue;
       add('a:'+a.ident,[a.lat,a.lon],aptSvg(a.type,mainRwyHdg(rwys[a.ident])),z>=11&&a.type!=='H'?(a.icao||a.name.replace(/^(Flugplatz|Sonderlandeplatz|Segelfluggelände|Segelfluggelande|Ultraleichtfluggelände)\s+/i,'').slice(0,18)):'','c-apt',()=>openNav({kind:'apt',a}));
     }
     for(const r of t.n){
       const n=navObj(r);const vor=/VOR|TACAN/.test(n.type);
-      if((!vor&&z<9)||!b.contains([n.lat,n.lon]))continue;
+      if(!state.navT.has(navGroup(n.type))||(!vor&&z<9)||!b.contains([n.lat,n.lon]))continue;
       add('n:'+n.ident+':'+n.type+':'+n.lat,[n.lat,n.lon],navSvg(n.type),z>=(vor?8:10)?n.ident:'','c-nav',()=>openNav({kind:'nav',n}));
     }
   }
@@ -1725,13 +1730,31 @@ $('placeBtn').onclick=()=>{setTab('pass',true);openSheet('place');};
 function paintChips(){
   const n=state.cats.size,k=CAT_ORDER.length;
   $('typeTxt').textContent=(n===k?'Alle Typen':n?n+' von '+k+' Typen':'Keine Typen')+(state.gnd?' + Boden':'');
-  $('navChip').setAttribute('aria-pressed',String(state.nav));
+  $('navChip').setAttribute('aria-pressed',String(state.navT.size>0));
+  $('navTxt').textContent=state.navT.size===NAVT.length?'Navigation':state.navT.size?'Navigation '+state.navT.size+'/'+NAVT.length:'Navigation aus';
   $('wxChip').setAttribute('aria-pressed',String(state.wx));
   $('aipChip').setAttribute('aria-pressed',String(state.aip&&!!aipKey()));
 }
-let menuOpen=false;
-function closeMenu(){menuOpen=false;$('menu').hidden=true;$('typeBtn').setAttribute('aria-expanded','false');}
+let menuOpen=false,menuKind='types';
+function closeMenu(){menuOpen=false;$('menu').hidden=true;$('typeBtn').setAttribute('aria-expanded','false');$('navChip').setAttribute('aria-expanded','false');}
+function renderNavMenu(){
+  const box=$('menu');
+  box.replaceChildren(el('h3',null,'Diese Navigationspunkte zeigen'));
+  const all=el('div','all'),a1=el('button',null,'Alle'),a2=el('button',null,'Keine');a1.type=a2.type='button';
+  const save=()=>store.set('navt',[...state.navT]);
+  const setAll=on=>{state.navT=new Set(on?NAVT_KEYS:[]);save();paintChips();renderNavMenu();paintNav();};
+  a1.onclick=()=>setAll(true);a2.onclick=()=>setAll(false);all.append(a1,a2);box.appendChild(all);
+  let grp='';
+  for(const[k,txt,cls]of NAVT){
+    const g=cls==='c-apt'?'Flugplätze':'Funkfeuer';
+    if(g!==grp){grp=g;box.appendChild(el('h3',null,g));}
+    const lab=el('label',cls),cb=el('input'),dot=el('i');cb.type='checkbox';cb.checked=state.navT.has(k);
+    cb.onchange=()=>{cb.checked?state.navT.add(k):state.navT.delete(k);save();paintChips();paintNav();};
+    lab.append(cb,dot,el('span',null,txt));box.appendChild(lab);
+  }
+}
 function renderMenu(){
+  if(menuKind==='nav')return renderNavMenu();
   const box=$('menu');
   box.replaceChildren(el('h3',null,'Diese Flugzeuge zeigen'));
   const all=el('div','all'),a1=el('button',null,'Alle'),a2=el('button',null,'Keine');a1.type=a2.type='button';
@@ -1748,17 +1771,19 @@ function renderMenu(){
   lab.append(cb,dot,el('span',null,'Am Boden (rollend oder geparkt)'));
   box.append(el('h3',null,'Zusätzlich'),lab);
 }
-function toggleMenu(){
-  if(menuOpen){closeMenu();return;}
+function toggleMenu(kind){
+  kind=kind||'types';
+  if(menuOpen&&menuKind===kind){closeMenu();return;}
   if(state.sheet)closeSheet();
-  menuOpen=true;renderMenu();$('menu').hidden=false;$('typeBtn').setAttribute('aria-expanded','true');
+  menuKind=kind;menuOpen=true;renderMenu();$('menu').hidden=false;
+  $('typeBtn').setAttribute('aria-expanded',String(kind==='types'));$('navChip').setAttribute('aria-expanded',String(kind==='nav'));
 }
-document.addEventListener('click',e=>{if(menuOpen&&!e.composedPath().some(n=>n.id==='menu'||n.id==='typeBtn'))closeMenu();});
+document.addEventListener('click',e=>{if(menuOpen&&!e.composedPath().some(n=>n.id==='menu'||n.id==='typeBtn'||n.id==='navChip'))closeMenu();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu();});
 $('chips').addEventListener('click',e=>{
   const c=e.target.closest('.chip');if(!c)return;
   if(c.id==='typeBtn')return toggleMenu();
-  if(c.id==='navChip'){state.nav=!state.nav;store.set('nav',state.nav);paintNav();}
+  if(c.id==='navChip')return toggleMenu('nav');
   if(c.id==='wxChip'){state.wx=!state.wx;store.set('wx',state.wx);paintWx();}
   if(c.id==='aipChip'){
     if(!aipKey()){setTab('map',true);openSheet('aip');return;}

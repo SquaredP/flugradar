@@ -5,6 +5,7 @@ Die Seite liest diese Datei selbst und zeigt nach einem Update einmalig einen Hi
 
 ## 2026-11-21
 
+- Navigation lässt sich nach Art filtern: Der Knopf „Navigation“ öffnet eine Auswahl für große Verkehrsflughäfen, Flughäfen, Flugplätze, Hubschrauberlandeplätze, Wasserflugplätze sowie VOR/VORTAC/TACAN, DME und NDB.
 - Flugplan: Es erscheinen immer die nächsten 5 Flüge, mit Tasten für die 5 früheren oder 5 späteren (Abflüge und Ankünfte). Überlappung der Überschrift mit den Tasten behoben.
 - Notebook und iPad im Querformat: Das Detailblatt (Flug, Flughafen, Mein Ort, Meine Flüge) erscheint rechts neben der Karte, sodass die Karte die volle Höhe behält. Auf dem Handy bleibt alles wie bisher.
 - Neu: Flugplan mit Uhrzeiten. Im Flughafenblatt zeigen „Abflüge“ und „Ankünfte“ die geplanten Flüge, Verspätungen und gestrichene Flüge (Quelle AirLabs, braucht einen Schlüssel im Vermittler).
