@@ -5,6 +5,7 @@ Die Seite liest diese Datei selbst und zeigt nach einem Update einmalig einen Hi
 
 ## 2026-11-23
 
+- Neues Symbol: ein stilisierter Radar mit Flugzeug im Browser-Tab und auf dem Home-Bildschirm
 - Mein Ort: Ein kleines × am Ende des Feldes setzt den Ort zurück
 - Flughafenblatt einheitlich aufklappbar: Wetter, Abflüge, Ankünfte, Pisten und Frequenzen sind Zeilen mit Kurzinfo (z. B. „VFR · Wind 020° 2 kt“, „nächster 07:10“) und Pfeil. Die Seite merkt sich, was du aufgeklappt hast. Abflüge und Ankünfte laden erst beim Aufklappen
 
