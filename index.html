@@ -564,7 +564,7 @@ function setBase(){
   base.eachLayer(l=>l.bringToBack());
 }
 setBase();dark.addEventListener('change',setBase);
-map.attributionControl.addAttribution('Flugdaten: adsb.lol / airplanes.live / OpenSky · Navigation: OurAirports · Wetter: NOAA AWC');
+map.attributionControl.addAttribution('Flugdaten: adsb.lol, airplanes.live · Navigation: OurAirports · Wetter: NOAA AWC');
 const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const markers=new Map();
 let meMarker=null,placeMarker=null,route=null;
@@ -572,7 +572,7 @@ let meMarker=null,placeMarker=null,route=null;
 /* ---------- Flugdaten: mehrere freie Quellen, die erste funktionierende gewinnt ---------- */
 const MIN_ZOOM=6;
 const PROV=[
-  {id:'proxy',name:'Eigener Vermittler',on:()=>!!CFG.proxy,base:()=>CFG.proxy.replace(/\/+$/,''),v2:true},
+  {id:'proxy',name:'adsb.lol / airplanes.live',on:()=>!!CFG.proxy,base:()=>CFG.proxy.replace(/\/+$/,''),v2:true},
   {id:'adsblol',name:'adsb.lol',base:()=>'https://api.adsb.lol',v2:true},
   {id:'apl',name:'airplanes.live',base:()=>'https://api.airplanes.live',v2:true},
   {id:'opensky',name:'OpenSky Network',os:true,min:30},
