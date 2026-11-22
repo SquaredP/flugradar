@@ -153,7 +153,9 @@ a{color:var(--focus)}
 .speed small{display:block;margin-top:3px;font:500 11px/1.2 var(--ui);color:var(--muted);letter-spacing:0}
 .late{color:var(--late);font-weight:600} .ok{color:var(--ontime);font-weight:600}
 .route{display:flex;gap:10px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
-.route .ap{flex:1;min-width:0}
+.route .ap{flex:1;min-width:0;background:none;border:0;padding:2px 4px;margin:-2px -4px;border-radius:8px;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.route .ap:active{background:color-mix(in srgb,var(--line) 70%,transparent)}
+.route .ap:focus-visible{outline:2px solid var(--accent,#6aa5ff)}
 .route .ap b{display:block;font:700 22px/1 var(--sign)}
 .route .ap small{display:block;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .route .ap.r{text-align:right}
@@ -887,8 +889,18 @@ async function loadInfo(sel){
 }
 
 /* ---------- Blatt: Flugzeug ---------- */
+/* Start und Ziel sind antippbar: Der volle Flughafeneintrag kommt aus der Flughafenliste (OurAirports), sonst aus den Routendaten */
+async function openAptOf(a){
+  const big=await loadBig();
+  const full=big.find(y=>(a.icao&&y.icao===a.icao)||(a.iata&&y.iata===a.iata))||
+    (isFinite(a.lat)&&isFinite(a.lon)?{ident:a.icao||a.iata,icao:a.icao,iata:a.iata,name:a.name||apLabel(a),city:a.city,lat:a.lat,lon:a.lon,elev:0,type:'L',cc:a.cc}:null);
+  if(!full)return;
+  setTab('map',true);openNav({kind:'apt',a:full});
+  if(isFinite(full.lat)&&isFinite(full.lon))map.setView([full.lat,full.lon],Math.max(map.getZoom(),9));
+}
 function apBox(a,right){
-  const d=el('div','ap'+(right?' r':''));d.append(el('b',null,apCode(a)||'?'),el('small',null,apLabel(a)));return d;
+  const d=el('button','ap'+(right?' r':''));d.type='button';d.setAttribute('aria-label','Flughafen '+(apLabel(a)||apCode(a))+' anzeigen');
+  d.append(el('b',null,apCode(a)||'?'),el('small',null,apLabel(a)));d.onclick=()=>openAptOf(a);return d;
 }
 function renderPlaneSheet(){
   const sel=state.sel;if(!sel||state.sheet!=='plane')return;

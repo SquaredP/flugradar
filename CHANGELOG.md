@@ -3,6 +3,10 @@
 Neue Funktionen und Korrekturen am Flugradar. Neueste Einträge oben.
 Die Seite liest diese Datei selbst und zeigt nach einem Update einmalig einen Hinweis an.
 
+## 2026-11-22
+
+- Start und Ziel in der Flugzeug-Karte sind antippbar: Ein Tipp öffnet das Flughafenblatt mit Piste, Frequenzen und Flugplan, die Karte springt zum Flughafen
+
 ## 2026-11-21
 
 - Navigation lässt sich nach Art filtern: Der Knopf „Navigation“ öffnet eine Auswahl für große Verkehrsflughäfen, Flughäfen, Flugplätze, Hubschrauberlandeplätze, Wasserflugplätze sowie VOR/VORTAC/TACAN, DME und NDB.
