@@ -5,8 +5,7 @@ Die Seite liest diese Datei selbst und zeigt nach einem Update einmalig einen Hi
 
 ## 2026-11-21
 
-- Notlösung: Antwortet kein Flugdatendienst, zeigt die Karte einen Schnappschuss für Mitteleuropa mit dem Hinweis „Nicht live: Stand vor X Min“.
-- Erste Version: Live-Karte mit Flugzeugen aus offenen ADS-B-Netzwerken (adsb.lol, airplanes.live, OpenSky). Die Silhouette zeigt die Art und dreht sich in Flugrichtung, am Namen steht die Höhe
+- Erste Version: Live-Karte mit Flugzeugen aus offenen ADS-B-Netzwerken (adsb.lol, airplanes.live). Die Silhouette zeigt die Art und dreht sich in Flugrichtung, am Namen steht die Höhe
 - Filter nach Verkehrsflugzeugen, Allgemeiner Luftfahrt, Hubschraubern, Militär und Segelflug, Flugzeuge am Boden zuschaltbar. Suche nach Flugnummer, Kennzeichen, Typ oder Transpondercode, Enter sucht weltweit
 - Flugzeug verfolgen: Flugspur, Kurs der nächsten 5 Minuten, Route mit Start, Ziel, Restentfernung und geschätzter Ankunft
 - Navigation: Flughäfen, Flugplätze, Pisten, Frequenzen und Funkfeuer (VOR, NDB, DME) aus OurAirports, mit Morsekennung

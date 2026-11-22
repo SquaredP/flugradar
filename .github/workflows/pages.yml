@@ -2,7 +2,7 @@ name: Seite bauen und veröffentlichen
 
 # Bei jedem Push auf main und alle 30 Minuten (für den METAR-Rückfall):
 # Navigationsdaten aus OurAirports (wöchentlich neu, sonst aus dem Zwischenspeicher),
-# METAR und einen Flugzeug-Schnappschuss (Notlösung) holen und alles auf GitHub Pages veröffentlichen.
+# METAR für Europa holen und alles auf GitHub Pages veröffentlichen.
 on:
   push:
     branches: [main]
@@ -50,17 +50,11 @@ jobs:
         continue-on-error: true
         run: node tools/metar.mjs _metar.json
 
-      # TECH-DEBT: Notlösung, falls kein Live-Dienst aus dem Browser erreichbar ist (siehe README).
-      - name: Schnappschuss Mitteleuropa (Notlösung)
-        continue-on-error: true
-        run: node tools/snapshot.mjs _snapshot.json
-
       - name: Seite zusammenstellen
         run: |
           mkdir -p _site/data
           cp -r index.html CHANGELOG.md README.md LICENSE config.json vendor _site/
           cp -r _nav _site/data/nav
-          if [ -s _snapshot.json ]; then cp _snapshot.json _site/data/snapshot.json; else echo '{"t":0,"ac":[]}' > _site/data/snapshot.json; fi
           if [ -s _metar.json ]; then cp _metar.json _site/data/metar.json; else echo '{"m":{}}' > _site/data/metar.json; fi
 
       - id: pages

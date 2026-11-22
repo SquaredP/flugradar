@@ -37,12 +37,9 @@ Zwischen zwei Abfragen schreibt die Seite die Position mit Kurs und Geschwindigk
 
 Die Seite fragt diese freien Dienste der Reihe nach und nimmt den ersten, der antwortet. Fällt einer aus, probiert sie ihn nach einigen Minuten erneut. Unter „Meine Flüge“ → „Über Flugradar“ steht, welcher gerade aktiv ist.
 
-1. Eigener Vermittler (falls in `config.json` eingetragen, siehe unten)
-2. [adsb.lol](https://adsb.lol) – gemeinschaftlich, werbefrei, ohne Schlüssel
-3. [airplanes.live](https://airplanes.live) – nur nicht-kommerziell, höchstens eine Anfrage pro Sekunde
-4. [OpenSky Network](https://opensky-network.org) – anonym 400 Abfragen pro Tag, daher nur alle 30 Sekunden
-5. adsb.lol weltweiter Datenstand – Notbetrieb, lädt alle 30 Sekunden alle Flugzeuge der Welt (rund 1 MB komprimiert), nur wenn sonst nichts geht
-6. Schnappschuss aus GitHub Actions – **nicht live**, nur Mitteleuropa, siehe „Technische Schulden“
+1. Eigener Vermittler (Cloudflare Worker, Adresse in `config.json`, siehe unten) – er fragt für die Seite adsb.lol, bei Fehler airplanes.live
+2. [adsb.lol](https://adsb.lol) direkt aus dem Browser – gemeinschaftlich, werbefrei, ohne Schlüssel
+3. [airplanes.live](https://airplanes.live) direkt aus dem Browser – nur nicht-kommerziell, höchstens eine Anfrage pro Sekunde
 
 Diese Dienste sind für Abfragen von Servern gebaut. Ob sie Abfragen **direkt aus dem Browser** zulassen (CORS), legen sie selbst fest, und das kann sich ändern; adsb.fi zum Beispiel lässt es nicht zu und fehlt deshalb. Steht oben „Keine Flugdatenquelle erreichbar“, hilft der eigene Vermittler.
 
@@ -55,15 +52,6 @@ Ein kleines Skript bei Cloudflare Workers (kostenloser Tarif, 100.000 Anfragen a
 3. Die Adresse des Workers (z. B. `https://flugradar.DEINNAME.workers.dev`) in [`config.json`](config.json) bei `"proxy"` eintragen und committen.
 
 Die Content-Security-Policy in `index.html` erlaubt Verbindungen zu `*.workers.dev`. Bei einer eigenen Domain diese dort in `connect-src` ergänzen.
-
-## Technische Schulden
-
-**TECH-DEBT-1: Schnappschuss statt Live-Daten (Notlösung).** Wenn kein Flugdatendienst direkt aus dem Browser antwortet (vermutlich CORS), zeigt die Seite zuletzt einen Schnappschuss, den GitHub Actions bei jedem Lauf (alle 30 Minuten, in der Praxis oft später) holt und mit der Seite veröffentlicht.
-
-- Skript: [`tools/snapshot.mjs`](tools/snapshot.mjs), Workflow-Schritt „Schnappschuss Mitteleuropa (Notlösung)“, Anzeige in `index.html` (Suche nach `TECH-DEBT`, Anbieter `snap`).
-- Einschränkungen: nicht live (Positionen sind bis zu eine Stunde alt und werden nur mit Kurs und Geschwindigkeit fortgeschrieben), nur Mitteleuropa (grob 43,5–58° N, 0–23° O), keine Suche nach Flügen außerhalb. Die Seite zeigt deutlich „Nicht live: Stand vor X Min“.
-- Risiken: Die Server von GitHub Actions werden von Diensten eventuell gesperrt (OpenSky nennt das für Hyperscaler). Dann bleibt die Datei leer und die Seite meldet, dass keine Quelle erreichbar ist. Die Daten werden mit der Seite öffentlich ausgeliefert; die Quellen erlauben nur nicht-kommerzielle Nutzung.
-- Abbau: Sobald der eigene Vermittler läuft (oben), den Anbieter `snap` aus `PROV` und `fetchSnap` aus `index.html`, `tools/snapshot.mjs`, den Workflow-Schritt und `data/snapshot.json` entfernen.
 
 ## Einrichtung
 
@@ -98,11 +86,11 @@ python3 -m http.server       # dann http://localhost:8000 öffnen
 
 ## Datenschutz
 
-Kein Konto, keine Cookies, kein Tracking, kein eigener Server. Mein Ort, Filter, Kartenausschnitt, gemerkte Flüge und ein openAIP-Schlüssel bleiben im Browser. Beim Benutzen sehen der jeweilige Flugdatendienst (Mittelpunkt und Radius des Ausschnitts, gesuchte und gemerkte Flüge), adsb.lol und adsbdb.com (Rufzeichen und Transpondercode des angetippten Flugzeugs), aviationweather.gov (Kartenausschnitt für METAR), Nominatim (Ortssuche), Esri und optional openAIP (Kartenkacheln) sowie GitHub Pages (Auslieferung) die IP-Adresse. Details stehen in der App unter „Meine Flüge“ → „Über Flugradar“.
+Kein Konto, keine Cookies, kein Tracking, kein eigener Server. Mein Ort, Filter, Kartenausschnitt, gemerkte Flüge und ein openAIP-Schlüssel bleiben im Browser. Beim Benutzen sehen der Vermittler bei Cloudflare und dahinter adsb.lol oder airplanes.live (Mittelpunkt und Radius des Ausschnitts, gesuchte und gemerkte Flüge), adsb.lol und adsbdb.com (Rufzeichen und Transpondercode des angetippten Flugzeugs), aviationweather.gov (Kartenausschnitt für METAR), Nominatim (Ortssuche), Esri und optional openAIP (Kartenkacheln) sowie GitHub Pages (Auslieferung) die IP-Adresse. Details stehen in der App unter „Meine Flüge“ → „Über Flugradar“.
 
 ## Daten und Nutzungsbedingungen
 
-- Flugdaten: [adsb.lol](https://adsb.lol), [airplanes.live](https://airplanes.live/api-guide/) (nicht-kommerziell), [OpenSky Network](https://opensky-network.org) (Forschung und nicht-kommerzielle Nutzung). Alle sind gemeinschaftlich betrieben; bitte nicht übermäßig belasten.
+- Flugdaten: [adsb.lol](https://adsb.lol), [airplanes.live](https://airplanes.live/api-guide/) (nicht-kommerziell), beide gemeinschaftlich betrieben und über den eigenen Vermittler (Cloudflare Workers) abgefragt; bitte nicht übermäßig belasten.
 - Routen: adsb.lol (aus [vradarserver standing-data](https://github.com/vradarserver/standing-data)), Rückfall [adsbdb.com](https://www.adsbdb.com). Flugzeugdaten: adsbdb.com.
 - Flugplätze, Pisten, Frequenzen, Funkfeuer: [OurAirports](https://ourairports.com/data/), gemeinfrei. Nicht amtlich.
 - Flugwetter: [NOAA Aviation Weather Center](https://aviationweather.gov/data/api/), gemeinfrei.

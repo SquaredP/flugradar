@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#14171c" media="(prefers-color-scheme: dark)">
 <title>Flugradar</title>
 <meta name="referrer" content="strict-origin">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://server.arcgisonline.com https://api.tiles.openaip.net; connect-src 'self' https://api.adsb.lol https://api.airplanes.live https://opensky-network.org https://globe.adsb.lol https://api.adsbdb.com https://aviationweather.gov https://nominatim.openstreetmap.org https://*.workers.dev; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://server.arcgisonline.com https://api.tiles.openaip.net; connect-src 'self' https://api.adsb.lol https://api.airplanes.live https://api.adsbdb.com https://aviationweather.gov https://nominatim.openstreetmap.org https://*.workers.dev; base-uri 'none'; form-action 'none'">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <style>
 /* Schriften liegen im Repo (vendor/fonts), damit beim Laden keine Anfrage an Google geht. */
@@ -321,7 +321,7 @@ function compass(b){return['Nord','Nordost','Ost','Südost','Süd','Südwest','W
 function planePos(p,now){
   const age=Math.max(0,now-p.ts),ll=[p.lat,p.lon];
   if(p.trk==null||p.gs==null||p.gs<(p.gnd?3:30))return{ll,age,est:false};
-  const dt=Math.min(age,p.gnd?15:(p.ex||EXTRAP_MAX));
+  const dt=Math.min(age,p.gnd?15:EXTRAP_MAX);
   return{ll:dt>0?project(ll,p.trk,p.gs*KN*dt):ll,age,est:dt>5};
 }
 /* Nächste Annäherung an einen Ort, geradeaus mit Kurs und Geschwindigkeit (ebene Näherung, genau genug bis etwa 100 km) */
@@ -483,15 +483,6 @@ function fromV2(a,now){
     ws:numv(a.ws),wd:numv(a.wd),oat:numv(a.oat),src:a.type||''};
   return p;
 }
-/* OpenSky-Zustandsvektor (Meter, m/s) */
-const OS_CAT=['','','A1','A2','A3','A4','A5','A6','A7','B1','B2','B3','B4','','B6','B7','C1','C2','C3','C3','C3'];
-function fromOpenSky(s,now){
-  if(!s||s[5]==null||s[6]==null)return null;
-  const m2f=x=>x==null?null:Math.round(x/FT);
-  return{h:String(s[0]).toLowerCase(),tis:false,cs:String(s[1]||'').trim(),r:'',t:'',desc:'',op:'',y:'',ec:OS_CAT[s[17]]||'',db:0,lat:s[6],lon:s[5],ts:s[3]||s[4]||now,
-    gnd:!!s[8],alt:s[8]?0:m2f(s[7]),galt:m2f(s[13]),vr:s[11]==null?null:Math.round(s[11]/FT*60),gs:s[9]==null?null:s[9]/KN,trk:s[10],sq:s[14]||'',em:'',
-    src:['adsb','asterix','mlat','flarm'][s[16]]||''};
-}
 const SRC={adsb_icao:'ADS-B',adsb_icao_nt:'ADS-B',adsr_icao:'ADS-R',tisb_icao:'TIS-B',tisb_trackfile:'TIS-B',adsc:'ADS-C (Satellit)',mlat:'MLAT (berechnet aus Laufzeiten)',mode_s:'Mode S',other:'sonstige',adsb:'ADS-B',flarm:'FLARM'};
 /* Route einer Datenbank (adsb.lol routeset): bei mehreren Abschnitten den passendsten zur Position wählen */
 function pickLeg(aps,pos){
@@ -564,7 +555,7 @@ function setBase(){
   base.eachLayer(l=>l.bringToBack());
 }
 setBase();dark.addEventListener('change',setBase);
-map.attributionControl.addAttribution('Flugdaten: adsb.lol, airplanes.live · Navigation: OurAirports · Wetter: NOAA AWC');
+map.attributionControl.addAttribution('Flugdaten: adsb.lol, airplanes.live · Routen: adsb.lol, adsbdb.com · Navigation: OurAirports · Wetter: NOAA AWC');
 const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const markers=new Map();
 let meMarker=null,placeMarker=null,route=null;
@@ -573,16 +564,12 @@ let meMarker=null,placeMarker=null,route=null;
 const MIN_ZOOM=6;
 const PROV=[
   {id:'proxy',name:'adsb.lol / airplanes.live',on:()=>!!CFG.proxy,base:()=>CFG.proxy.replace(/\/+$/,''),v2:true},
-  {id:'adsblol',name:'adsb.lol',base:()=>'https://api.adsb.lol',v2:true},
-  {id:'apl',name:'airplanes.live',base:()=>'https://api.airplanes.live',v2:true},
-  {id:'opensky',name:'OpenSky Network',os:true,min:30},
-  {id:'globe',name:'adsb.lol (weltweiter Datenstand)',globe:true,min:30},
-  /* TECH-DEBT: Schnappschuss aus GitHub Actions, höchstens halbstündlich neu. Nur Notlösung (siehe README). */
-  {id:'snap',name:'Schnappschuss (nicht live)',snap:true,min:300}
+  {id:'adsblol',name:'adsb.lol (direkt)',base:()=>'https://api.adsb.lol',v2:true},
+  {id:'apl',name:'airplanes.live (direkt)',base:()=>'https://api.airplanes.live',v2:true}
 ];
 const pfail={};   // id -> {at, wait, msg}
 const provOk=p=>(!p.on||p.on())&&!(pfail[p.id]&&Date.now()-pfail[p.id].at<pfail[p.id].wait);
-function failWait(e,p){if(e.status===429)return p.os?3600000:120000;if(e.status===401||e.status===403)return 1800000;return e.net?600000:180000;}
+function failWait(e,p){if(e.status===429)return 120000;if(e.status===401||e.status===403)return 1800000;return e.net?600000:180000;}
 /* Kreis, der den sichtbaren Ausschnitt abdeckt (höchstens 250 NM, mehr erlauben die Dienste nicht) */
 function viewCircle(){
   const b=map.getBounds().pad(.1),c=map.getCenter();
@@ -591,44 +578,17 @@ function viewCircle(){
 }
 async function fetchArea(p,ci){
   const now=nowSec();
-  if(p.v2){
-    const j=await getJSON(p.base()+'/v2/point/'+ci.c[0].toFixed(3)+'/'+ci.c[1].toFixed(3)+'/'+ci.nm);
-    return(j.ac||j.aircraft||[]).map(a=>fromV2(a,now)).filter(Boolean);
-  }
-  if(p.os){
-    const[S,W,N,E]=ci.b;
-    const j=await getJSON('https://opensky-network.org/api/states/all?extended=1&lamin='+S.toFixed(3)+'&lomin='+W.toFixed(3)+'&lamax='+N.toFixed(3)+'&lomax='+E.toFixed(3));
-    return(j.states||[]).map(s=>fromOpenSky(s,now)).filter(Boolean);
-  }
-  if(p.snap)return fetchSnap(ci);
-  const j=await getJSON('https://globe.adsb.lol/data/aircraft.json',{timeout:30000});
-  const[S,W,N,E]=ci.b,out=[];
-  for(const a of j.aircraft||[]){if(a.lat<S||a.lat>N||a.lon<W||a.lon>E)continue;const x=fromV2(a,now);if(x)out.push(x);}
-  return out;
-}
-/* TECH-DEBT: Schnappschuss (data/snapshot.json) aus dem Build. Positionen sind bis zu einer Stunde alt und werden mit
-   Kurs und Geschwindigkeit fortgeschrieben (p.ex). Nur als letzter Ausweg, wenn kein Live-Dienst antwortet. */
-const SNAP_MAX=3600;
-async function fetchSnap(ci){
-  const j=await getJSON('data/snapshot.json?'+Math.floor(Date.now()/300000));
-  const age=nowSec()-(j.t||0);
-  if(!j.t||age>SNAP_MAX)throw new Error('Schnappschuss fehlt oder ist zu alt');
-  state.snap={t:j.t,src:j.src,box:j.box};
-  const[S,W,N,E]=ci.b,out=[];
-  const add=x=>{if(x&&x.lat>=S&&x.lat<=N&&x.lon>=W&&x.lon<=E){x.ex=SNAP_MAX+300;out.push(x);}};
-  for(const a of j.ac||[])add(fromV2(a,j.t));
-  for(const s of j.os||[])add(fromOpenSky(s,j.t));
-  return out;
+  const j=await getJSON(p.base()+'/v2/point/'+ci.c[0].toFixed(3)+'/'+ci.c[1].toFixed(3)+'/'+ci.nm);
+  return(j.ac||j.aircraft||[]).map(a=>fromV2(a,now)).filter(Boolean);
 }
 /* Abfrage nach Kennung (hex, callsign, reg), Listen mit Komma */
 async function lookup(kind,ids){
   const now=nowSec();
   for(const p of PROV){
-    if(!provOk(p)||(!p.v2&&!(p.os&&kind==='hex')))continue;
+    if(!provOk(p)||!p.v2)continue;
     try{
-      if(p.v2){const j=await getJSON(p.base()+'/v2/'+kind+'/'+ids.map(encodeURIComponent).join(','));return(j.ac||[]).map(a=>fromV2(a,now)).filter(Boolean);}
-      const j=await getJSON('https://opensky-network.org/api/states/all?extended=1&'+ids.map(h=>'icao24='+encodeURIComponent(h)).join('&'));
-      return(j.states||[]).map(s=>fromOpenSky(s,now)).filter(Boolean);
+      const j=await getJSON(p.base()+'/v2/'+kind+'/'+ids.map(encodeURIComponent).join(','));
+      return(j.ac||[]).map(a=>fromV2(a,now)).filter(Boolean);
     }catch(e){pfail[p.id]={at:Date.now(),wait:failWait(e,p),msg:e.message};}
   }
   throw new Error('keine Quelle erreichbar');
@@ -696,16 +656,9 @@ function statusLine(shown,hidden){
   if(state.err)return[state.err,true];
   if(!state.prov)return['Lade Flugzeuge …',false];
   const p=PROV.find(x=>x.id===state.prov);
-  if(p.snap&&state.snap){
-    const min=Math.max(0,Math.round((nowSec()-state.snap.t)/60)),b=state.snap.box,c=state.area?state.area.c:null;
-    const out=c&&b&&(c[0]<b[0]||c[0]>b[2]||c[1]<b[1]||c[1]>b[3]);
-    return['Nicht live: Stand vor '+min+' Min · '+shown+(shown===1?' Flugzeug':' Flugzeuge')+(out?' · außerhalb des Schnappschuss-Gebiets (Mitteleuropa)':' · Positionen geschätzt'),true];
-  }
   let t='Live · '+p.name+' · '+hhmmss(state.lastOk)+' · '+shown+(shown===1?' Flugzeug':' Flugzeuge');
   if(hidden)t+=' · '+hidden+' Namen ausgeblendet';
   if(state.area&&state.area.nm>=250)t+=' · nur 460 km Umkreis';
-  if(p.os)t+=' · begrenzt, alle 30 s';
-  if(p.globe)t+=' · Notbetrieb, große Datenmenge';
   if(state.query&&!shown)t='Kein Flugzeug „'+state.queryRaw+'“ im Ausschnitt. Enter sucht weltweit.';
   return[t,false];
 }
@@ -719,7 +672,7 @@ function passes(p,fav){
   return true;
 }
 function planeIcon(p,pos,sel,fav,emg,label){
-  const cat=p.cat,[shape,size]=shapeOf(p,cat),rot=p.trk!=null?Math.round(p.trk/5)*5:0,old=pos.age>STALE&&!p.ex;
+  const cat=p.cat,[shape,size]=shapeOf(p,cat),rot=p.trk!=null?Math.round(p.trk/5)*5:0,old=pos.age>STALE;
   const txt=label?(fav?'★ ':'')+nameOf(p):'',em=label&&!p.gnd&&p.alt!=null?altShort(p.alt)+vArrow(p.vr):'';
   const key=[cat,shape,size,rot,old,sel,emg,p.gnd,txt,em].join('|');
   return{key,make:()=>{
@@ -737,7 +690,7 @@ function render(){
   for(const p of state.planes.values()){
     const isSel=!!sel&&sel.h===p.h,fav=isFav(p,fi);
     if(!isSel&&(gated||!passes(p,fav)))continue;
-    if(!isSel&&!fav&&now-p.ts>DROP&&!p.ex)continue;
+    if(!isSel&&!fav&&now-p.ts>DROP)continue;
     const pos=planePos(p,now);
     if(!isSel&&!bounds.contains(pos.ll))continue;
     list.push({p,pos,isSel,fav,emg:isEmg(p),pt:map.latLngToContainerPoint(pos.ll)});
@@ -1001,7 +954,7 @@ function renderPlaneStatus(){
   const sm=el('small','num');
   sm.append('Position '+hhmmss(p.ts*1000)+', '+ago(pos.age));
   if(pos.est)sm.append(' · fortgeschrieben');
-  if(pos.age>STALE&&!p.ex)sm.appendChild(el('span','late',' · veraltet'));
+  if(pos.age>STALE)sm.appendChild(el('span','late',' · veraltet'));
   if(state.place){const d=dist(pos.ll,[state.place.lat,state.place.lon]);sm.append(' · '+fmtKm(d)+' von '+state.place.name);}
   box.appendChild(sm);
   const a=$('pAlt');a.replaceChildren();
@@ -1068,7 +1021,7 @@ function renderFavs(){
   }
   const now=nowSec(),ps=[...state.planes.values()];
   state.favs.forEach((f,i)=>{
-    const p=f.k==='cs'?ps.find(x=>x.cs===f.id&&(x.ex||now-x.ts<DROP)):ps.find(x=>x.h===f.id&&(x.ex||now-x.ts<DROP));
+    const p=f.k==='cs'?ps.find(x=>x.cs===f.id&&now-x.ts<DROP):ps.find(x=>x.h===f.id&&now-x.ts<DROP);
     if(p){f.cat=p.cat;if(f.k==='hex'&&p.r)f.n=p.r;}
     const box=el('div','fav'),open=el('button','open');open.type='button';
     const pp=el('p'),rt=f.k==='cs'?routeFresh(f.id):null;
@@ -1129,7 +1082,7 @@ function computePass(){
   const now=nowSec(),pl=[state.place.lat,state.place.lon],elev=state.place.elev||0,icao=state.place.icao||'';
   const near=[],come=[],arr=[],dep=[],want=[];
   for(const p of allPlanes()){
-    if(!state.cats.has(p.cat)||!matches(p,state.query)||(now-p.ts>DROP&&!p.ex))continue;
+    if(!state.cats.has(p.cat)||!matches(p,state.query)||now-p.ts>DROP)continue;
     const pos=planePos(p,now),d=dist(pos.ll,pl);
     if(d>300000)continue;
     if(icao){
@@ -1547,7 +1500,7 @@ function renderAip(){
 /* ---------- Suche ---------- */
 async function findPlane(){
   const raw=state.queryRaw,q=state.query;if(!q)return;
-  const hits=[...allPlanes()].filter(p=>matches(p,q)&&(p.ex||nowSec()-p.ts<DROP)).sort((a,b)=>(a.gnd?1:0)-(b.gnd?1:0)||nameOf(a).localeCompare(nameOf(b)));
+  const hits=[...allPlanes()].filter(p=>matches(p,q)&&nowSec()-p.ts<DROP).sort((a,b)=>(a.gnd?1:0)-(b.gnd?1:0)||nameOf(a).localeCompare(nameOf(b)));
   if(hits.length===1){selectPlane(hits[0].h,true);return;}
   if(hits.length>1){state.found=hits.slice(0,40);setTab('map',true);openSheet('find');return;}
   note('Suche „'+raw+'“ weltweit …',false,60000);
@@ -1631,8 +1584,7 @@ function renderAbout(){
     st.appendChild(el('li',null,pr.name+': '+(!on?'nicht eingerichtet':state.prov===pr.id&&!state.err?'aktiv':f?'zuletzt fehlgeschlagen um '+hhmm(f.at)+' ('+f.msg+')':'bereit')));
   }
   sec('Datenquellen für Flugzeuge',
-    p('Die Seite fragt diese freien Dienste der Reihe nach und nimmt den ersten, der antwortet. Stand gerade:'),st,
-    p('Antwortet kein Dienst („gesperrt oder nicht erreichbar“), lässt der Dienst vermutlich keine Abfragen direkt aus dem Browser zu. Dann hilft ein eigener kleiner Vermittler (Cloudflare Worker, kostenlos), siehe README im Repository.'));
+    p('Die Positionen stammen von den freien Netzwerken adsb.lol und airplanes.live. Die Seite fragt sie der Reihe nach über einen eigenen kleinen Vermittler (Cloudflare Worker) ab, weil die Dienste Abfragen direkt aus dem Browser nicht zulassen. Stand gerade:'),st);
   sec('Weitere Datenquellen',
     ul(['Routen: adsb.lol (Routendatenbank aus vradarserver standing-data), Rückfall adsbdb.com',
         'Flugzeugdaten: aus den Flugdaten (tar1090-Datenbank) und adsbdb.com',
@@ -1645,7 +1597,7 @@ function renderAbout(){
     p('Kein Konto, keine Cookies, keine Werbung, keine Statistik und kein Tracking. Es gibt keinen eigenen Server, der etwas von dir speichert.'),
     p('Nur in deinem Browser gespeichert, nie gesendet: Mein Ort, Filter, Kartenausschnitt, gemerkte Flüge und Flugzeuge, ein openAIP-Schlüssel und welche Neuerungen du gesehen hast. Navigationsdaten liegen zwischengespeichert im Gerät. Löschen geht über die Website-Daten des Browsers.'),
     p('Beim Benutzen fragt dein Browser direkt bei diesen Diensten an, die dabei deine IP-Adresse sehen:'),
-    ul(['Flugdatendienst (adsb.lol, airplanes.live oder OpenSky): Mittelpunkt und Radius des sichtbaren Ausschnitts, gesuchte Flüge, gemerkte Flüge und Flugzeuge',
+    ul(['Eigener Vermittler bei Cloudflare Workers und dahinter adsb.lol oder airplanes.live: Mittelpunkt und Radius des sichtbaren Ausschnitts, gesuchte Flüge, gemerkte Flüge und Flugzeuge. Der Vermittler speichert nichts.',
         'adsb.lol und adsbdb.com: Rufzeichen und Transpondercode des angetippten Flugzeugs (für Route und Flugzeugdaten)',
         'aviationweather.gov: sichtbarer Kartenausschnitt (für METAR)',
         'Nominatim: Suchtext und Kartenpunkt bei der Ortswahl',
