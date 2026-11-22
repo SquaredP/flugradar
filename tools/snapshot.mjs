@@ -16,7 +16,7 @@ const OUT = process.argv[2] || 'data/snapshot.json';
 const UA = { 'User-Agent': 'Flugradar (github.com/SquaredP/flugradar)', accept: 'application/json' };
 const CIRCLES = [[52.0, 9.0, 250], [48.0, 11.0, 250], [51.0, 17.0, 250]];   // Breite, Länge, Seemeilen
 const BOX = [43.5, 0, 58, 23];                                              // grobe Umhüllende der Kreise
-const MIN = 150;                                                            // darunter gilt der Lauf als misslungen
+const MIN = 20;                                                             // darunter gilt der Lauf als misslungen (nachts fliegen nur wenige)
 const KEEP = ['hex', 'flight', 'r', 't', 'desc', 'ownOp', 'year', 'category', 'dbFlags', 'lat', 'lon', 'seen_pos', 'seen',
   'alt_baro', 'alt_geom', 'baro_rate', 'geom_rate', 'gs', 'track', 'true_heading', 'mag_heading', 'squawk', 'emergency', 'type'];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
