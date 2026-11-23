@@ -54,7 +54,7 @@ jobs:
         run: |
           mkdir -p _site/data
           cp -r index.html CHANGELOG.md README.md LICENSE config.json vendor _site/
-          cp favicon.svg favicon-32.png apple-touch-icon.png _site/
+          cp favicon.svg favicon-32.png icon-512.png apple-touch-icon.png _site/
           cp -r _nav _site/data/nav
           if [ -s _metar.json ]; then cp _metar.json _site/data/metar.json; else echo '{"m":{}}' > _site/data/metar.json; fi
 
