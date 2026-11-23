@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f2f4f7" media="(prefers-color-scheme: light)">
@@ -84,7 +84,7 @@ a{color:var(--focus)}
 .menu input{width:18px;height:18px;margin:0}
 .menu .all{display:flex;gap:12px;padding:4px 10px 6px}
 .menu .all button{background:none;border:0;padding:4px 0;color:var(--focus);font-weight:500}
-.lineq{flex:none;width:150px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 11px;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.lineq{flex:none;font-size:16px;width:150px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 11px;box-shadow:0 1px 4px rgba(0,0,0,.1)}
 .status{align-self:flex-start;max-width:100%;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--muted)}
 .status.err{color:var(--late);border-color:var(--late)}
 .track{align-self:flex-start;max-width:100%;display:flex;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden}
@@ -636,6 +636,9 @@ function setBase(){
 setBase();dark.addEventListener('change',setBase);
 map.attributionControl.addAttribution('Flugdaten: adsb.lol, airplanes.live · Routen: adsb.lol, adsbdb.com · Flugpläne: AirLabs · Navigation: OurAirports · Wetter: NOAA AWC');
 const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+/* Handy: Die Seite selbst darf sich nicht zoomen oder verschieben (Fingerzoom, Fokus im Suchfeld). Sonst rutschen obere Leiste und Reiter aus dem Bild. */
+['gesturestart','gesturechange','gestureend'].forEach(t=>document.addEventListener(t,e=>e.preventDefault()));
+if(window.visualViewport)visualViewport.addEventListener('resize',()=>{if(visualViewport.scale>1.01){const m=document.querySelector('meta[name=viewport]'),c=m.content;m.content=c+',minimum-scale=1';setTimeout(()=>{m.content=c;window.scrollTo(0,0);},60);}});
 const markers=new Map();
 let meMarker=null,placeMarker=null,route=null;
 
