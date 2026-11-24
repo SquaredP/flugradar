@@ -71,6 +71,7 @@ a{color:var(--focus)}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:none;display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;
   padding:6px 11px;font-weight:500;box-shadow:0 1px 4px rgba(0,0,0,.1);white-space:nowrap}
+a.chip{text-decoration:none;color:inherit}
 .chip i{width:10px;height:10px;border-radius:50%;background:var(--c);opacity:.35}
 .chip[aria-pressed="true"]{border-color:var(--c)}
 .chip[aria-pressed="true"] i{opacity:1}
@@ -260,6 +261,7 @@ details.fold>.fb{display:flex;flex-direction:column;gap:8px;padding:0 0 12px}
       <button class="chip c-nav" id="navChip" type="button" aria-pressed="true" aria-haspopup="true" aria-expanded="false"><i></i><span id="navTxt">Navigation</span> ▾</button>
       <button class="chip c-wx" id="wxChip" type="button" aria-pressed="true"><i></i>Wetter</button>
       <button class="chip c-aip" id="aipChip" type="button" aria-pressed="false"><i></i>Luftraum</button>
+      <a class="chip" id="notamChip" href="https://notambriefing.com/" target="_blank" rel="noopener noreferrer" title="NOTAM für diesen Kartenausschnitt auf notambriefing.com (externe Seite, nicht amtlich)">NOTAM ↗</a>
       <input class="lineq" id="planeQ" type="search" placeholder="Flug, Kennz., Typ" enterkeyhint="search" autocomplete="off" aria-label="Nach Flug, Kennzeichen, Typ oder Hex-Code filtern">
     </div>
     <div class="menu" id="menu" hidden></div>
@@ -1605,6 +1607,7 @@ async function renderNav(){
   const acts=el('div','acts');
   const mk=el('button','btn pri','Als Mein Ort');mk.type='button';mk.onclick=()=>{setPlace(placeOfApt(a));setTab('pass',true);openSheet('pass');};
   acts.append(mk,Object.assign(link('OurAirports ↗','https://ourairports.com/airports/'+encodeURIComponent(a.ident)+'/'),{className:'btn'}));
+  if(/^[A-Z]{4}$/.test(a.icao||''))acts.append(Object.assign(link('NOTAM ↗','https://notambriefing.com/airport/'+a.icao),{className:'btn',title:'NOTAM auf notambriefing.com (externe Seite, nicht amtlich)'}));
   body.appendChild(acts);
   body.appendChild(el('p','hint','Daten aus OurAirports, nicht amtlich. Nicht für die Navigation verwenden.'));
   if(a.icao){
@@ -1804,6 +1807,7 @@ function renderAbout(){
     p('Beim Benutzen fragt dein Browser direkt bei diesen Diensten an, die dabei deine IP-Adresse sehen:'),
     ul(['Eigener Vermittler bei Cloudflare Workers und dahinter adsb.lol oder airplanes.live: Mittelpunkt und Radius des sichtbaren Ausschnitts, gesuchte Flüge, gemerkte Flüge und Flugzeuge. Der Vermittler speichert nichts.',
         'AirLabs (über den Vermittler): IATA-Code des Flughafens, dessen Flugplan du öffnest',
+        'notambriefing.com: nur wenn du „NOTAM ↗“ antippst; Kartenmitte und Zoom stehen dann im Link. NOTAM-Daten selbst sind nicht Teil dieser Seite',
         'adsb.lol und adsbdb.com: Rufzeichen und Transpondercode des angetippten Flugzeugs (für Route und Flugzeugdaten)',
         'aviationweather.gov: sichtbarer Kartenausschnitt (für METAR)',
         'Nominatim: Suchtext und Kartenpunkt bei der Ortswahl',
@@ -1960,8 +1964,13 @@ let moveT=null;
   });
   map.on('dblclick',e=>{const z=Math.min(map.getMaxZoom()||18,map.getZoom()+1);if(state.sel&&state.sel.follow)map.setZoom(z);else map.setZoomAround(e.containerPoint,z);});}
 /* Beim Folgen verschiebt render() selbst die Karte; dann nicht erneut rendern, sonst entsteht eine Schleife */
+/* NOTAM-Knopf: öffnet notambriefing.com mit dem gleichen Ausschnitt (deren Zoomstufe ist um 1 kleiner als bei Leaflet) */
+function paintNotamLink(){
+  const c=map.getCenter(),z=Math.max(3,Math.min(12,map.getZoom()-1));
+  $('notamChip').href='https://notambriefing.com/briefing?lat='+c.lat.toFixed(4)+'&lon='+c.lng.toFixed(4)+'&zoom='+z.toFixed(1);
+}
 map.on('moveend',()=>{
-  const c=map.getCenter();store.set('view',{c:[c.lat,c.lng],z:map.getZoom()});
+  const c=map.getCenter();store.set('view',{c:[c.lat,c.lng],z:map.getZoom()});paintNotamLink();
   if(!(state.sel&&state.sel.follow))render();
   clearTimeout(moveT);moveT=setTimeout(()=>{loadPlanes();paintNav();paintWx();},600);
 });
@@ -1979,7 +1988,7 @@ if(!store.get('hint',0))$('hint').hidden=false;
 async function loadConfig(){
   try{const r=await fetch('config.json',{cache:'no-cache'});if(r.ok){const j=await r.json();if(typeof j.proxy==='string')CFG.proxy=j.proxy.trim();if(typeof j.openaipKey==='string')CFG.openaipKey=j.openaipKey.trim();}}catch(e){}
 }
-paintPlace();paintChips();
+paintPlace();paintChips();paintNotamLink();
 Promise.race([loadConfig(),new Promise(r=>setTimeout(r,1500))]).then(()=>{paintChips();applyAip();render();loadPlanes(true);paintNav();paintWx();loadNews();});
 </script>
 </body>
